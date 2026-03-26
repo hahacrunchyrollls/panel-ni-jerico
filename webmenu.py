@@ -556,7 +556,7 @@ def extract_labeled_value(text, labels):
 def render_service_status_summary():
     try:
         payload = get_status_payload()
-        services = payload.get("services", [])
+        services = normalize_service_entries(payload.get("services", []))
     except Exception:
         services = []
     if not services:
@@ -566,7 +566,7 @@ def render_service_status_summary():
         if not isinstance(entry, (list, tuple)) or len(entry) < 2:
             continue
         name = html.escape(str(entry[0]))
-        ok = bool(entry[1])
+        ok = coerce_service_online(entry[1])
         items.append(
             f'<div>{name}</div><div style="color:{"var(--success)" if ok else "var(--error)"};font-weight:700;">{"ONLINE" if ok else "OFFLINE"}</div>'
         )
@@ -576,6 +576,66 @@ def render_service_status_summary():
   <div class="link-box">
     <div class="link-title tls"><img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png" style="height:1.05em;"> Services Status</div>
     <div style="display:grid;grid-template-columns:1fr auto;gap:.7rem 1rem;">""" + "".join(items) + "</div></div>"
+
+
+def coerce_service_online(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    if text in {"active", "online", "running", "up", "true", "1", "ok", "healthy"}:
+        return True
+    if text in {"inactive", "offline", "stopped", "down", "false", "0", "failed", "dead", "error"}:
+        return False
+    return bool(text)
+
+
+def normalize_service_entries(services):
+    normalized = {}
+    order = []
+    if isinstance(services, dict):
+        entries = list(services.items())
+    else:
+        entries = list(services or [])
+    for entry in entries:
+        raw_name = ""
+        status_value = False
+        if isinstance(entry, dict):
+            raw_name = str(entry.get("name") or entry.get("service") or entry.get("unit") or "").strip()
+            status_value = entry.get("online", entry.get("status", entry.get("active")))
+        elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            raw_name = str(entry[0]).strip()
+            status_value = entry[1]
+        else:
+            continue
+        if not raw_name:
+            continue
+        is_online = coerce_service_online(status_value)
+        upper_name = raw_name.upper().replace(".SERVICE", "")
+        display_name = upper_name
+        if upper_name in {"HYSTERIA", "HYSTERIA-UDP", "HYSTERIA SERVER", "HYSTERIA-SERVER"} or "HYSTERIA" in upper_name:
+            display_name = "HYSTERIA-SERVER"
+        elif upper_name == "BADVPN":
+            display_name = "BADVPN-UDPGW"
+        elif upper_name == "MULTIPLEXER":
+            display_name = "MULTIPLEXER"
+        elif upper_name == "OPENVPN":
+            display_name = "OPENVPN"
+        elif upper_name == "WEBSOCKET":
+            display_name = "WEBSOCKET"
+        elif upper_name == "SSHD":
+            display_name = "SSH"
+        elif upper_name.endswith(".SERVICE"):
+            display_name = upper_name[:-8]
+        if display_name not in normalized:
+            normalized[display_name] = is_online
+            order.append(display_name)
+        else:
+            normalized[display_name] = normalized[display_name] or is_online
+    return [[name, normalized[name]] for name in order]
 
 
 def get_memory_stats():
@@ -656,6 +716,7 @@ def get_status_payload():
         try:
             data = backend_request("/status", payload=None, method="GET")
             if isinstance(data, dict) and data.get("ok") is True:
+                data["services"] = normalize_service_entries(data.get("services") or data.get("service_statuses") or [])
                 return data
         except Exception:
             pass
@@ -703,46 +764,75 @@ BASE_TEMPLATE = """
 <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_fuji.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
 <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/shoelace.js"></script>
 <style>
-:root{--primary-color:#00aaff;--primary-hover:#33bbff;--accent-color:#06b6d4;--accent-hover:#22d3ee;--bg-gradient:linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0f172a 100%);--card-bg:linear-gradient(145deg,#1e1e2e 0%,#1a1b26 100%);--card-border:#2f3255;--card-shadow:0 10px 30px rgba(0,0,0,.5);--success:#22c55e;--error:#ef4444;--warning:#f59e0b;--text-primary:#f8fafc;--text-secondary:#cbd5e1;--text-muted:#94a3b8;--border-radius:16px;--transition:all .25s ease;}
-body{background:var(--bg-gradient);color:var(--text-primary);font-family:'Segoe UI',system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;line-height:1.6;overflow-x:hidden;position:relative;}
-body::before{content:"";position:fixed;inset:0;z-index:-1;background:radial-gradient(ellipse at 20% 20%,rgba(0,170,255,.05),transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(34,197,94,.03),transparent 60%);}
-button{background:linear-gradient(145deg,var(--primary-color) 0%,var(--accent-color) 100%);color:#fff;border:none;border-radius:var(--border-radius);font-weight:600;font-size:1rem;padding:14px 28px;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:8px;}
-button:hover,button:focus{transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,170,255,.25);background:linear-gradient(145deg,var(--primary-hover) 0%,var(--accent-hover) 100%);outline:none;}
-.container{width:95%;max-width:650px;margin:2rem auto;padding:0 1rem;}
-.neo-box{background:var(--card-bg);border-radius:var(--border-radius);box-shadow:var(--card-shadow);padding:1.8rem 1.5rem;margin-bottom:2rem;border:1px solid var(--card-border);backdrop-filter:blur(10px);}
-.section-title{font-size:2rem;font-weight:700;margin-bottom:1rem;background:linear-gradient(to right,var(--text-primary),var(--text-secondary));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
-.success-msg{display:flex;align-items:center;background:rgba(34,197,94,.1);border-left:5px solid var(--success);border-radius:var(--border-radius);padding:1rem;margin-bottom:1.5rem;font-weight:500;font-size:1.05em;}
+:root{--primary-color:#7c1027;--primary-hover:#5d0919;--accent-color:#a91e3c;--accent-hover:#c13350;--bg-gradient:linear-gradient(180deg,#fffefb 0%,#f8ebef 48%,#fff8fa 100%);--card-bg:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);--card-border:#5d0919;--card-shadow:8px 8px 0 rgba(93,9,25,.88);--soft-shadow:0 20px 42px rgba(93,9,25,.14);--success:#8f1730;--error:#391019;--warning:#b54e61;--text-primary:#381018;--text-secondary:#6a2030;--text-muted:#955663;--surface:#ffffff;--surface-alt:#fff3f6;--paper:#fffaf8;--ink:#1f060c;--border-radius:18px;--transition:all .22s ease;}
+body{background:var(--bg-gradient);color:var(--text-primary);font-family:'Comic Neue','Trebuchet MS',sans-serif;margin:0;min-height:100vh;line-height:1.6;overflow-x:hidden;position:relative;}
+body::before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle,rgba(124,16,39,.13) 0 1.6px,transparent 1.8px 100%) 0 0/24px 24px,radial-gradient(circle,rgba(124,16,39,.08) 0 1.4px,transparent 1.7px 100%) 12px 12px/24px 24px,linear-gradient(135deg,rgba(124,16,39,.06) 0%,transparent 35%,rgba(124,16,39,.04) 100%);}
+a{color:var(--primary-color);}
+button{background:linear-gradient(180deg,var(--primary-color) 0%,var(--accent-color) 100%);color:#fff;border:3px solid var(--ink);border-radius:16px;font-weight:700;font-size:1rem;padding:14px 28px;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:5px 5px 0 var(--ink);font-family:'Bangers','Comic Neue',cursive;letter-spacing:.08em;text-transform:uppercase;}
+button:hover,button:focus{transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink);background:linear-gradient(180deg,var(--accent-hover) 0%,var(--primary-color) 100%);outline:none;}
+.container{width:95%;max-width:720px;margin:2rem auto;padding:0 1rem;}
+.neo-box{background:var(--card-bg);border-radius:var(--border-radius);box-shadow:var(--card-shadow),var(--soft-shadow);padding:1.8rem 1.5rem;margin-bottom:2rem;border:3px solid var(--card-border);position:relative;overflow:hidden;}
+.neo-box::before{content:"";position:absolute;top:14px;right:-48px;width:160px;height:34px;background:rgba(124,16,39,.08);transform:rotate(28deg);}
+.section-title{font-family:'Bangers','Comic Neue',cursive;font-size:clamp(2rem,5vw,3rem);letter-spacing:.08em;margin-bottom:1rem;color:var(--primary-color);background:none;-webkit-text-fill-color:initial;text-shadow:2px 2px 0 rgba(31,6,12,.14);}
+.success-msg{display:flex;align-items:center;background:linear-gradient(180deg,#ffffff 0%,#fff6f8 100%);border:3px solid var(--success);border-radius:var(--border-radius);padding:1rem;margin-bottom:1.5rem;font-weight:700;font-size:1.05em;color:var(--text-primary);box-shadow:4px 4px 0 rgba(93,9,25,.24);}
 .info-grid,.status-grid-2,.services-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.info-grid{gap:.8rem 1.2rem;font-family:ui-monospace,'Cascadia Code','SF Mono',monospace;background:rgba(15,23,42,.6);border-radius:var(--border-radius);padding:1.2rem;margin-bottom:1.5rem;border:1px solid var(--card-border);}
-.info-grid div:nth-child(2n){font-weight:600;color:var(--accent-color);word-break:break-all;}
-.link-box,.status-card,.service-item{background:rgba(15,23,42,.6);border-radius:var(--border-radius);padding:1rem;border:1px solid var(--card-border);}
-.link-title{font-weight:600;margin-bottom:.8rem;display:flex;align-items:center;gap:8px}.link-title.tls{color:var(--success)}
-input[type="text"],input[type="password"],input[type="search"],input[type="number"],select{background:rgba(15,23,42,.6);border:1px solid var(--card-border);border-radius:var(--border-radius);color:var(--text-primary);font-size:.95rem;padding:12px 16px;width:100%;box-sizing:border-box;max-width:400px;display:block;outline:none;}
+.info-grid{gap:.8rem 1.2rem;font-family:'Comic Neue','Trebuchet MS',sans-serif;background:linear-gradient(180deg,#ffffff 0%,#fff7f8 100%);border-radius:var(--border-radius);padding:1.2rem;margin-bottom:1.5rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);}
+.info-grid div:nth-child(2n){font-weight:700;color:var(--primary-color);word-break:break-all;}
+.link-box,.status-card,.service-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:1rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);}
+.link-title{font-family:'Bangers','Comic Neue',cursive;font-weight:700;margin-bottom:.8rem;display:flex;align-items:center;gap:8px;letter-spacing:.06em;color:var(--primary-color)}.link-title.tls{color:var(--primary-color)}
+input[type="text"],input[type="password"],input[type="search"],input[type="number"],select{background:#fff;border:3px solid var(--card-border);border-radius:16px;color:var(--text-primary);font-size:1rem;padding:12px 16px;width:100%;box-sizing:border-box;max-width:400px;display:block;outline:none;box-shadow:inset 0 -4px 0 rgba(124,16,39,.08);}
+input[type="text"]:focus,input[type="password"]:focus,input[type="search"]:focus,input[type="number"]:focus,select:focus{box-shadow:0 0 0 4px rgba(124,16,39,.12),inset 0 -4px 0 rgba(124,16,39,.08);}
 .form-group{margin-bottom:1.8rem;text-align:center;width:100%;display:flex;flex-direction:column;align-items:center;}
-.form-label{display:block;font-weight:600;margin-bottom:.8rem;width:100%;max-width:400px;text-align:center;}
+.form-label{display:block;font-family:'Bangers','Comic Neue',cursive;font-weight:700;letter-spacing:.06em;margin-bottom:.8rem;width:100%;max-width:400px;text-align:center;color:var(--primary-color);}
 .form-input-container{width:100%;display:flex;justify-content:center;max-width:400px;}
 form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:1.5rem;}
-.navbar{width:100%;background:rgba(15,23,42,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--card-border);display:flex;align-items:center;justify-content:space-between;padding:1rem max(1.5rem,5%);position:sticky;top:0;z-index:100;box-sizing:border-box;}
-.navbar-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:clamp(.95rem,3vw,1.4rem);color:var(--text-primary);text-decoration:none;line-height:1.1;}
+.navbar{width:100%;background:rgba(255,250,249,.97);backdrop-filter:blur(10px);border-bottom:4px solid var(--card-border);box-shadow:0 8px 0 rgba(93,9,25,.18);display:flex;align-items:center;justify-content:space-between;padding:1rem max(1.5rem,5%);position:sticky;top:0;z-index:100;box-sizing:border-box;}
+.navbar-brand{display:flex;align-items:center;gap:10px;font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:clamp(1.1rem,3vw,1.6rem);letter-spacing:.06em;color:var(--primary-color);text-decoration:none;line-height:1.1;}
 .navbar-nav{display:flex;align-items:center;gap:10px;margin-left:auto;}
-.nav-link{color:var(--text-secondary);text-decoration:none;font-weight:500;padding:8px 16px;border-radius:var(--border-radius);transition:var(--transition);font-size:.95rem;}
-.nav-link:hover,.nav-link.active{color:var(--text-primary);background:rgba(255,255,255,.1);}
-.burger-btn{display:none;background:transparent;border:1px solid rgba(255,255,255,.06);color:var(--text-secondary);padding:0;border-radius:10px;height:44px;width:44px;}
-.mobile-menu{display:none;position:absolute;top:calc(100% + 8px);right:12px;min-width:220px;max-width:92vw;background:rgba(15,23,42,.98);border:1px solid var(--card-border);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.6);padding:8px;z-index:1000;flex-direction:column;gap:6px;}
-.mobile-menu a{display:block;text-decoration:none;color:var(--text-primary);padding:10px 12px;border-radius:8px;font-weight:600;}
-.mobile-menu a:hover{background:rgba(255,255,255,.03);color:var(--accent-color);}
-.status-label{color:var(--text-muted);font-size:.9rem;display:flex;align-items:center;gap:6px;}.status-value{font-size:1.2rem;font-weight:600}
-.status-subtitle{font-size:1rem;font-weight:600;margin:1.2rem 0 .8rem 0;color:var(--text-secondary);display:flex;align-items:center;gap:8px;}
+.nav-link{color:var(--text-secondary);text-decoration:none;font-weight:700;padding:8px 16px;border-radius:14px;border:2px solid transparent;transition:var(--transition);font-size:.98rem;background:rgba(124,16,39,.05);}
+.nav-link:hover,.nav-link.active{color:#fff;background:var(--primary-color);border-color:var(--ink);}
+.burger-btn{display:none;background:var(--surface);border:3px solid var(--card-border);color:var(--primary-color);padding:0;border-radius:12px;height:46px;width:46px;box-shadow:4px 4px 0 rgba(93,9,25,.22);}
+.mobile-menu{display:none;position:absolute;top:calc(100% + 8px);right:12px;min-width:220px;max-width:92vw;background:var(--surface);border:3px solid var(--card-border);border-radius:16px;box-shadow:8px 8px 0 rgba(93,9,25,.22);padding:8px;z-index:1000;flex-direction:column;gap:6px;}
+.mobile-menu a{display:block;text-decoration:none;color:var(--text-primary);padding:10px 12px;border-radius:10px;font-weight:700;}
+.mobile-menu a:hover{background:var(--primary-color);color:#fff;}
+.status-label{color:var(--text-muted);font-size:.92rem;font-weight:700;display:flex;align-items:center;gap:6px;}.status-value{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;letter-spacing:.04em;font-weight:700}
+.status-subtitle{font-family:'Bangers','Comic Neue',cursive;font-size:1.15rem;font-weight:700;letter-spacing:.05em;margin:1.2rem 0 .8rem 0;color:var(--primary-color);display:flex;align-items:center;gap:8px;}
 .stats-container{display:flex;justify-content:center;gap:1rem;margin:1.5rem 0;flex-wrap:wrap;}
-.stat-item{background:rgba(15,23,42,.5);border-radius:var(--border-radius);padding:.8rem 1.5rem;display:flex;align-items:center;gap:10px;border:1px solid var(--card-border);flex:1;min-width:200px;max-width:300px;}
-.stat-icon{color:var(--accent-color);font-size:1.2rem}.stat-value{font-weight:600;font-size:1.1rem}.stat-label{font-size:.9rem;color:var(--text-secondary)}
-.public-chat{margin-top:1.5rem;display:flex;flex-direction:column;gap:8px;align-items:center}.chat-box{width:100%;max-width:400px;background:rgba(15,23,42,.6);border-radius:12px;padding:10px;border:1px solid var(--card-border);max-height:320px;overflow:auto;font-size:.98rem}.chat-message{padding:6px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,.02);display:block}.chat-meta{display:flex;align-items:center;gap:8px}.chat-name{font-weight:700;color:var(--accent-color)}.chat-time{color:var(--text-muted);font-size:.8rem;margin-left:auto}.chat-text{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.chat-form{width:100%;max-width:400px;display:flex;gap:8px;align-items:center;flex-direction:column}.chat-form input[type="text"]{width:100%}
-.loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.88);backdrop-filter:blur(6px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:3px solid rgba(255,255,255,.08);border-top-color:var(--primary-color);border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-weight:600}
+.stat-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:.8rem 1.5rem;display:flex;align-items:center;gap:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);flex:1;min-width:200px;max-width:300px;}
+.stat-icon{color:var(--primary-color);font-size:1.2rem}.stat-value{font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1.3rem;letter-spacing:.04em}.stat-label{font-size:.9rem;color:var(--text-secondary);font-weight:700}
+.server-selector{max-width:760px;margin:0 auto 1.35rem auto;padding:1.1rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
+.server-selector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1rem;text-align:left;}
+.server-selector-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--primary-color);font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1rem;letter-spacing:.08em;text-transform:uppercase;}
+.server-selector-title{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;font-weight:700;color:var(--primary-color);margin-top:.35rem;letter-spacing:.04em;}
+.server-selector-note{color:var(--text-muted);font-size:.95rem;max-width:420px;font-weight:700;}
+.server-selector-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.server-card-form{display:block;width:100%;margin:0;}
+button.server-card-button{width:100%;padding:0;border-radius:18px;display:block;text-align:left;background:linear-gradient(180deg,#ffffff 0%,#fff3f6 100%);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.22);overflow:hidden;color:var(--text-primary);font-family:'Comic Neue','Trebuchet MS',sans-serif;letter-spacing:0;text-transform:none;}
+button.server-card-button:hover,button.server-card-button:focus{transform:translate(3px,3px);border-color:var(--primary-color);background:linear-gradient(180deg,#ffffff 0%,#ffe6ed 100%);box-shadow:1px 1px 0 rgba(93,9,25,.22);}
+button.server-card-button.is-active{background:linear-gradient(180deg,var(--accent-color) 0%,var(--primary-color) 100%);border-color:var(--ink);box-shadow:4px 4px 0 var(--ink);color:#fff;}
+button.server-card-button.is-active .server-card-title,button.server-card-button.is-active .server-card-location,button.server-card-button.is-active .server-card-host{color:#fff;}
+button.server-card-button.is-active .server-badge{background:#fff;color:var(--primary-color);border-color:var(--ink);}
+.server-card-main{display:flex;align-items:flex-start;gap:12px;padding:14px 15px 10px 15px;}
+.server-flag{height:36px;width:48px;border-radius:12px;object-fit:cover;border:2px solid var(--card-border);background:#fff;box-shadow:3px 3px 0 rgba(93,9,25,.2);}
+.server-flag-fallback{display:inline-flex;align-items:center;justify-content:center;height:36px;width:48px;border-radius:12px;background:rgba(124,16,39,.08);border:2px solid var(--card-border);color:var(--primary-color);font-size:1rem;}
+.server-copy{flex:1;min-width:0;}
+.server-card-title{display:flex;align-items:center;gap:8px;justify-content:space-between;font-weight:800;font-size:1rem;color:var(--text-primary);}
+.server-card-location{margin-top:4px;color:var(--text-secondary);font-size:.92rem;word-break:break-word;}
+.server-card-host{display:flex;align-items:center;gap:8px;padding:10px 15px 14px 15px;border-top:2px dashed rgba(93,9,25,.25);color:var(--text-muted);font-size:.86rem;background:rgba(124,16,39,.04);}
+.server-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:2px solid rgba(93,9,25,.18);font-size:.78rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary);background:rgba(124,16,39,.05);}
+.server-badge.active{background:#fff;color:var(--primary-color);border-color:var(--ink);}
+.server-current-pill{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;max-width:760px;margin:0 auto 1.35rem auto;padding:.9rem 1rem;border-radius:999px;background:var(--surface);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.18);color:var(--text-secondary);font-size:.95rem;font-weight:700;}
+.server-current-dot{height:10px;width:10px;border-radius:50%;background:var(--success);box-shadow:0 0 0 6px rgba(143,23,48,.12);}
+.server-current-name{color:var(--primary-color);font-weight:800;font-family:'Bangers','Comic Neue',cursive;letter-spacing:.04em;}
+.server-current-meta{color:var(--text-muted);}
+.public-chat{margin-top:1.5rem;display:flex;flex-direction:column;gap:8px;align-items:center}.chat-box{width:100%;max-width:400px;background:linear-gradient(180deg,#ffffff 0%,#fff5f7 100%);border-radius:16px;padding:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);max-height:320px;overflow:auto;font-size:.98rem}.chat-message{padding:8px;border-radius:12px;margin-bottom:8px;background:rgba(124,16,39,.05);border:2px dashed rgba(124,16,39,.24);display:block}.chat-meta{display:flex;align-items:center;gap:8px}.chat-name{font-weight:700;color:var(--primary-color)}.chat-time{color:var(--text-muted);font-size:.8rem;margin-left:auto}.chat-text{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.chat-form{width:100%;max-width:400px;display:flex;gap:8px;align-items:center;flex-direction:column}.chat-form input[type="text"]{width:100%}
+.loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}}
+@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}}
 </style>
 </head>
 <body>
@@ -766,7 +856,7 @@ def navbar_html():
   <a href="/main/" class="navbar-brand">
     <img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_fuji.png" alt="FUJI PANEL" style="height:2.1em;">
     <span>FUJI PANEL</span>
-    <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.18rem .45rem;background:rgba(255,255,255,.02);border-radius:8px;border:1px solid rgba(255,255,255,.03);white-space:nowrap;">IP: {visitor_ip}</span>
+    <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.24rem .55rem;background:var(--surface);border-radius:999px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);white-space:nowrap;">IP: {visitor_ip}</span>
   </a>
   <div class="navbar-nav">
     <a href="/main/" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
@@ -813,7 +903,7 @@ def render_home():
   <a href="/{service}/" {anchor_attr}>
     <button class="create-btn" {button_attr} style="{style_attr}">
       <div style="display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text-primary);"><img src="{icon}" style="height:1.1em;"> CREATE {label}</div>
-      <div><span style="background:rgba(255,255,255,.04);padding:4px 8px;border-radius:10px;font-weight:700;color:#fff;">{created}/{daily_limit}</span></div>
+      <div><span style="background:var(--primary-color);padding:4px 8px;border-radius:999px;font-weight:700;color:#fff;border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);">{created}/{daily_limit}</span></div>
     </button>
   </a>
 </div>"""
@@ -828,32 +918,80 @@ def render_home():
             flag = f'https://flagcdn.com/48x36/{code.lower()}.png' if code else ""
             location_html = f"""
 <div style="text-align:center;margin-bottom:1.2em;">
-  {'<img src="' + flag + '" alt="' + html.escape(code) + ' flag" style="height:2.2em;vertical-align:middle;border-radius:6px;border:1px solid #222;margin-bottom:0.5em;margin-top:1em;">' if flag else ''}
+  {'<img src="' + flag + '" alt="' + html.escape(code) + ' flag" style="height:2.2em;vertical-align:middle;border-radius:10px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);margin-bottom:0.5em;margin-top:1em;">' if flag else ''}
   <div style="font-size:1.1em;color:var(--text-secondary);font-weight:600;margin-top:0.5em;">{html.escape(country)}{', ' + html.escape(city) if city else ''}</div>
 </div>"""
     except Exception:
         pass
     selector_html = ""
-    if len(backends) > 1:
-        options = []
-        current_id = selected_backend_id()
-        for backend in backends:
-            selected_attr = " selected" if backend["id"] == current_id else ""
-            options.append(f'<option value="{html.escape(backend["id"])}"{selected_attr}>{html.escape(backend["label"])}</option>')
-        selector_html = f"""
-    <div class="link-box" style="max-width:520px;margin:0 auto 1.25rem auto;">
-      <form method="POST" action="/select-server/" style="margin-bottom:0;">
-        <div class="form-group" style="margin-bottom:1rem;">
-          <label class="form-label"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</label>
-          <div class="form-input-container" style="max-width:none;">
-            <select name="backend_id" onchange="this.form.submit()">{''.join(options)}</select>
-          </div>
-        </div>
-      </form>
-    </div>"""
     current_server_note = ""
+    current_id = selected_backend_id()
+    if len(backends) > 1:
+        server_cards = []
+        for backend in backends:
+            backend_geo = backend_location(backend)
+            country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
+            city = backend.get("city") or backend_geo.get("city") or ""
+            country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
+            flag_html = (
+                f'<img class="server-flag" src="https://flagcdn.com/48x36/{country_code.lower()}.png" alt="{html.escape(country_code)} flag">'
+                if country_code
+                else '<span class="server-flag-fallback"><i class="fa-solid fa-globe"></i></span>'
+            )
+            is_active = backend["id"] == current_id
+            active_class = " is-active" if is_active else ""
+            badge_html = (
+                '<span class="server-badge active"><i class="fa-solid fa-circle-check"></i> Active</span>'
+                if is_active
+                else '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Switch</span>'
+            )
+            location_bits = [bit for bit in [city, country] if bit]
+            location_label = ", ".join(location_bits) if location_bits else backend["label"]
+            server_cards.append(
+                f"""
+      <form method="POST" action="/select-server/" class="server-card-form">
+        <input type="hidden" name="backend_id" value="{html.escape(backend['id'])}">
+        <button type="submit" class="server-card-button{active_class}">
+          <div class="server-card-main">
+            {flag_html}
+            <div class="server-copy">
+              <div class="server-card-title">
+                <span>{html.escape(backend["label"])}</span>
+                {badge_html}
+              </div>
+              <div class="server-card-location"><i class="fa-solid fa-location-dot" style="color:var(--accent-color);margin-right:6px;"></i>{html.escape(location_label)}</div>
+            </div>
+          </div>
+          <div class="server-card-host"><i class="fa-solid fa-server" style="color:var(--accent-color);"></i><span>{html.escape(backend_host(backend))}</span></div>
+        </button>
+      </form>"""
+            )
+        selector_html = f"""
+    <div class="server-selector">
+      <div class="server-selector-head">
+        <div>
+          <div class="server-selector-kicker"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</div>
+          <div class="server-selector-title">Pick where new accounts should be created</div>
+        </div>
+        <div class="server-selector-note">Each card points to a different VPS backend. Switch here before creating SSH, VLESS, Hysteria, or OpenVPN accounts.</div>
+      </div>
+      <div class="server-selector-grid">{''.join(server_cards)}</div>
+    </div>"""
     if current_backend:
-        current_server_note = f'<div style="color:var(--text-secondary);font-size:.95rem;margin-top:.2rem;">Selected server: <strong style="color:var(--text-primary);">{html.escape(current_backend["label"])}</strong></div>'
+        backend_geo = backend_location(current_backend)
+        location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
+        current_server_note = (
+            '<div class="server-current-pill">'
+            '<span class="server-current-dot"></span>'
+            '<span>Selected server</span>'
+            f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
+            + (
+                f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
+                if location_bits
+                else ""
+            )
+            + "</div>"
+        )
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
     return render_page(
         "FUJI PANEL",
@@ -971,6 +1109,23 @@ def render_service_form(service, error=None, values=None):
     icon = service_icon(service)
     days = get_create_account_expiry(service)
     current_backend = selected_backend()
+    current_backend_note = ""
+    if current_backend:
+        backend_geo = backend_location(current_backend)
+        location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
+        current_backend_note = (
+            '<div class="server-current-pill" style="margin:-.8rem auto 1.4rem auto;max-width:520px;">'
+            '<span class="server-current-dot"></span>'
+            '<span>Selected server</span>'
+            f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
+            + (
+                f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
+                if location_bits
+                else ""
+            )
+            + '<a href="/main/" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
+            + "</div>"
+        )
     username_value = html.escape(values.get("username", ""))
     password_value = html.escape(values.get("password", ""))
     bypass_value = values.get("bypass_option", "")
@@ -1007,7 +1162,7 @@ def render_service_form(service, error=None, values=None):
     <h2 class="section-title" style="margin:0;">Create {label} Account</h2>
   </div>
   <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:2rem;">Create {label} account ({days} days)</div>
-  {f'<div style="color:var(--text-secondary);font-size:.95rem;margin:-1rem 0 1.4rem 0;">Selected server: <strong style="color:var(--text-primary);">{html.escape(current_backend["label"])}</strong> <a href="/main/" style="color:var(--accent-color);text-decoration:none;">Change</a></div>' if current_backend else ''}
+  {current_backend_note}
   {error_html}
   <form method="POST" action="/{service}/">
     <div class="form-group">
@@ -1035,7 +1190,7 @@ def render_service_form(service, error=None, values=None):
   }})();
   </script>
   <a href="/main/" style="display:block;margin-top:1.5rem;text-decoration:none;">
-    <button style="width:100%;max-width:400px;margin:0 auto;background:rgba(15,23,42,.6);border:1px solid var(--card-border);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
+    <button style="width:100%;max-width:400px;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
   </a>
 </div></div>"""
     return render_page(label, content)
@@ -1153,7 +1308,7 @@ def render_service_result(service, result):
   </script>"""
     content += """
   <a href="/main/" style="display:block;margin-top:1rem;text-decoration:none;">
-    <button style="width:100%;background:rgba(15,23,42,.6);border:1px solid var(--card-border);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
+    <button style="width:100%;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
   </a>
 </div></div>"""
     return render_page(label, content)
@@ -1190,7 +1345,7 @@ def render_donate():
         "Donate",
         """
 <div class="container"><div class="neo-box" style="max-width:720px;margin:0 auto;text-align:center;">
-  <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;"><i class="fa-solid fa-donate" style="font-size:1.6em;color:#fff;"></i><h2 class="section-title" style="margin:0;">Gcash Donation</h2></div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;"><i class="fa-solid fa-donate" style="font-size:1.6em;color:var(--primary-color);"></i><h2 class="section-title" style="margin:0;">Gcash Donation</h2></div>
   <div style="margin-top:.6rem;"><img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/Donate.png" alt="Donate" style="max-width:100%;height:auto;border-radius:12px;border:1px solid var(--card-border);"></div>
   <div style="margin-top:1rem;color:var(--text-secondary);">Thank you for supporting all donation will be appreciated.</div>
   <a href="/main/" style="display:block;margin-top:1.2rem;text-decoration:none;"><button style="width:100%;max-width:320px;margin:.8rem auto 0;display:block;"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
@@ -1205,7 +1360,7 @@ def render_readme():
 <div class="container"><div class="neo-box" style="max-width:800px;margin:0 auto;">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-bullhorn" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">ANNOUNCEMENT!</h2></div>
   <div class="announcement-content" style="font-size:1.1em;color:var(--text-primary);padding:1em 0;">{announcement_html()}</div>
-  <div style="display:flex;justify-content:center;margin-top:1.5rem;"><a href="/main/" style="text-decoration:none;display:inline-block;width:100%;"><button style="width:100%;max-width:400px;min-width:220px;font-size:1.15em;padding:16px 0;margin:0 auto;background:rgba(15,23,42,.6);border:2px solid var(--card-border);border-radius:16px;font-weight:700;"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div>
+  <div style="display:flex;justify-content:center;margin-top:1.5rem;"><a href="/main/" style="text-decoration:none;display:inline-block;width:100%;"><button style="width:100%;max-width:400px;min-width:220px;font-size:1.15em;padding:16px 0;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);border-radius:16px;font-weight:700;box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div>
 </div></div>""",
     )
 
@@ -1242,7 +1397,7 @@ def render_admin(success=None, error=None):
   <div class="neo-box">{banner}
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <div><h2 class="section-title" style="margin:0;">Admin Dashboard</h2><div style="color:var(--text-secondary);max-width:620px;">Serverless-safe controls for daily limits, default expiry, and audit history. Real VPN account management still needs a VPS backend.</div></div>
-      <a href="/admin/logout" style="text-decoration:none;"><button style="background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.16);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
+      <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><form method="POST" action="/admin/" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
