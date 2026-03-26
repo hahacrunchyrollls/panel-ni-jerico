@@ -113,6 +113,42 @@ def configured_server_api_token():
     return os.environ.get("SERVER_API_TOKEN", "").strip()
 
 
+def load_numbered_backends():
+    indexed = []
+    for key, raw_value in os.environ.items():
+        match = re.fullmatch(r"SERVER_API_URL_(\d+)", key)
+        if not match:
+            continue
+        index = match.group(1)
+        api_url = str(raw_value or "").strip().rstrip("/")
+        api_token = os.environ.get(f"SERVER_API_TOKEN_{index}", "").strip()
+        if not api_url or not api_token:
+            continue
+        backend_id = os.environ.get(f"SERVER_ID_{index}", "").strip() or f"server_{index}"
+        label = (
+            os.environ.get(f"SERVER_LABEL_{index}", "").strip()
+            or os.environ.get(f"SERVER_COUNTRY_{index}", "").strip()
+            or backend_id
+        )
+        indexed.append(
+            (
+                int(index),
+                {
+                    "id": backend_id,
+                    "label": label,
+                    "api_url": api_url,
+                    "api_token": api_token,
+                    "country": os.environ.get(f"SERVER_COUNTRY_{index}", "").strip(),
+                    "countryCode": os.environ.get(f"SERVER_COUNTRY_CODE_{index}", "").strip(),
+                    "city": os.environ.get(f"SERVER_CITY_{index}", "").strip(),
+                    "lookup": os.environ.get(f"SERVER_LOOKUP_{index}", "").strip(),
+                },
+            )
+        )
+    indexed.sort(key=lambda item: item[0])
+    return [backend for _, backend in indexed]
+
+
 def load_config():
     config = load_json(
         CONFIG_FILE,
@@ -164,6 +200,8 @@ def load_backends():
                     )
         except Exception:
             pass
+    if not backends:
+        backends = load_numbered_backends()
     if not backends and configured_server_api_url() and configured_server_api_token():
         backends.append(
             {
@@ -267,7 +305,9 @@ def backend_location(backend=None):
 def backend_request(path, payload=None, method="POST"):
     backend = selected_backend()
     if not backend:
-        raise RuntimeError("SERVER_API_URL or SERVER_API_TOKEN is not configured.")
+        raise RuntimeError(
+            "No backend is configured. Set SERVER_BACKENDS_JSON, numbered SERVER_API_URL_n / SERVER_API_TOKEN_n pairs, or SERVER_API_URL / SERVER_API_TOKEN."
+        )
     body = None
     headers = {"Authorization": "Bearer " + backend.get("api_token", "")}
     if payload is not None:
@@ -1058,7 +1098,7 @@ def render_home():
     {% if not backend_ready %}
     <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
       <i class="fa-solid fa-plug-circle-xmark" style="color:var(--error);"></i>
-      <div>Set <code>SERVER_API_URL</code> and <code>SERVER_API_TOKEN</code> in Vercel to enable account creation.</div>
+      <div>Set <code>SERVER_BACKENDS_JSON</code>, numbered <code>SERVER_API_URL_1</code> / <code>SERVER_API_TOKEN_1</code> pairs, or <code>SERVER_API_URL</code> / <code>SERVER_API_TOKEN</code> in Vercel to enable account creation.</div>
     </div>
     {% endif %}
     <div style="margin:2rem 0;"><div class="create-grid">{{ cards|safe }}</div></div>
