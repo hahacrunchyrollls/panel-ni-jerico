@@ -1,0 +1,1 @@
+from webmenu import app
