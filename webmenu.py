@@ -26,17 +26,33 @@ CONFIG_FILE = STATE_DIR / "config.json"
 COUNTS_FILE = STATE_DIR / "counts.json"
 CHAT_FILE = STATE_DIR / "chat.json"
 AUDIT_FILE = STATE_DIR / "audit.json"
+COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 README_FILE = Path.cwd() / "README.md"
 
 CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 MAX_CHAT_MESSAGES = 200
+CREATE_COOLDOWN_SECONDS = 600
 
 SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
     ("vless", "VLESS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-v2ray.png"),
     ("hysteria", "HYSTERIA", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-hysteria.png"),
     ("openvpn", "OPENVPN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-openvpn.png"),
+]
+STATUS_SERVICE_ORDER = [
+    "SSH",
+    "DNSTT",
+    "SQUID",
+    "WEBSOCKET",
+    "SSL",
+    "XRAY",
+    "BADVPN-UDPGW",
+    "HYSTERIA",
+    "WIREGUARD",
+    "SLIPSTREAM",
+    "MULTIPLEXER",
+    "OPENVPN",
 ]
 
 state_lock = threading.Lock()
@@ -310,6 +326,11 @@ def backend_request(path, payload=None, method="POST"):
         )
     body = None
     headers = {"Authorization": "Bearer " + backend.get("api_token", "")}
+    if has_request_context():
+        client_ip = get_request_ip().strip()
+        if client_ip:
+            headers["X-Forwarded-For"] = client_ip
+            headers["X-Real-IP"] = client_ip
     if payload is not None:
         body = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -420,6 +441,54 @@ def increment_total_accounts():
         data["total_accounts"] += 1
         save_json(VISITS_FILE, data)
         return data["total_accounts"]
+
+
+def load_create_cooldowns():
+    data = load_json(COOLDOWN_FILE, {"ips": {}})
+    ips = data.get("ips", {})
+    data["ips"] = ips if isinstance(ips, dict) else {}
+    return data
+
+
+def get_create_cooldown_remaining(ip_address):
+    if not ip_address:
+        return 0
+    now = int(time.time())
+    data = load_create_cooldowns()
+    try:
+        until = int(data.get("ips", {}).get(ip_address, 0))
+    except Exception:
+        until = 0
+    return max(until - now, 0)
+
+
+def set_create_cooldown(ip_address, seconds=CREATE_COOLDOWN_SECONDS):
+    if not ip_address:
+        return
+    now = int(time.time())
+    expires_at = now + int(seconds)
+    with state_lock:
+        data = load_create_cooldowns()
+        cleaned = {}
+        for key, value in data.get("ips", {}).items():
+            try:
+                expiry = int(value)
+            except Exception:
+                continue
+            if expiry > now:
+                cleaned[key] = expiry
+        cleaned[ip_address] = expires_at
+        save_json(COOLDOWN_FILE, {"ips": cleaned})
+
+
+def format_cooldown_label(seconds):
+    total = max(int(seconds), 0)
+    minutes, remainder = divmod(total, 60)
+    if minutes and remainder:
+        return f"{minutes}m {remainder}s"
+    if minutes:
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{remainder} second" if remainder == 1 else f"{remainder} seconds"
 
 
 def load_chat_messages():
@@ -710,6 +779,10 @@ def normalize_service_entries(services):
             display_name = "OPENVPN"
         elif upper_name == "WEBSOCKET":
             display_name = "WEBSOCKET"
+        elif upper_name in {"WIREGUARD", "WG", "WG-QUICK"} or "WIREGUARD" in upper_name:
+            display_name = "WIREGUARD"
+        elif upper_name == "SLIPSTREAM" or "SLIPSTREAM" in upper_name:
+            display_name = "SLIPSTREAM"
         elif upper_name == "SSHD":
             display_name = "SSH"
         elif upper_name.endswith(".SERVICE"):
@@ -719,7 +792,13 @@ def normalize_service_entries(services):
             order.append(display_name)
         else:
             normalized[display_name] = normalized[display_name] or is_online
-    return [[name, normalized[name]] for name in order]
+    ordered = []
+    for name in STATUS_SERVICE_ORDER:
+        ordered.append([name, normalized.get(name, False)])
+    for name in order:
+        if name not in STATUS_SERVICE_ORDER:
+            ordered.append([name, normalized[name]])
+    return ordered
 
 
 def get_memory_stats():
@@ -817,18 +896,7 @@ def get_status_payload():
         last_traffic_snapshot["time"] = now
         last_traffic_snapshot["rx"] = rx_total
         last_traffic_snapshot["tx"] = tx_total
-    services = [
-        ["SSH", False],
-        ["DNSTT", False],
-        ["SQUID", False],
-        ["WEBSOCKET", False],
-        ["SSL", False],
-        ["XRAY", False],
-        ["BADVPN-UDPGW", False],
-        ["HYSTERIA", False],
-        ["MULTIPLEXER", False],
-        ["OPENVPN", False],
-    ]
+    services = [[name, False] for name in STATUS_SERVICE_ORDER]
     return {
         "cpu": get_cpu_percent(),
         "load": get_load_average(),
@@ -1617,6 +1685,14 @@ def submit_service_request(service):
     values = {key: request.form.get(key, "") for key in ("username", "password", "bypass_option")}
     if not backend_configured():
         return render_unavailable(service_label(service))
+    client_ip = get_request_ip()
+    cooldown_remaining = get_create_cooldown_remaining(client_ip)
+    if cooldown_remaining > 0:
+        return render_service_form(
+            service,
+            error=f"Please wait {format_cooldown_label(cooldown_remaining)} before creating another account.",
+            values=values,
+        )
     if get_daily_created_count(service) >= get_daily_account_limit():
         return render_service_form(service, error="Daily account creation limit reached for this service.", values=values)
     payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
@@ -1627,6 +1703,7 @@ def submit_service_request(service):
     try:
         data = backend_request(f"/create/{service}", payload=payload, method="POST")
         result = data.get("result", {}) if isinstance(data, dict) else {}
+        set_create_cooldown(client_ip)
         increment_daily_created_count(service)
         increment_total_accounts()
         return render_service_result(service, result)
