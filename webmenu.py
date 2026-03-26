@@ -578,19 +578,66 @@ def render_service_status_summary():
     <div style="display:grid;grid-template-columns:1fr auto;gap:.7rem 1rem;">""" + "".join(items) + "</div></div>"
 
 
-def coerce_service_online(value):
+def coerce_service_online(value, default=False):
     if isinstance(value, bool):
         return value
     if isinstance(value, (int, float)):
         return bool(value)
     if value is None:
-        return False
+        return default
     text = str(value).strip().lower()
-    if text in {"active", "online", "running", "up", "true", "1", "ok", "healthy"}:
+    if text in {"active", "online", "running", "up", "true", "1", "ok", "healthy", "yes"}:
         return True
-    if text in {"inactive", "offline", "stopped", "down", "false", "0", "failed", "dead", "error"}:
+    if text in {"inactive", "offline", "stopped", "down", "false", "0", "failed", "dead", "error", "no"}:
         return False
-    return bool(text)
+    positive_tokens = ("active", "online", "running", "healthy", "started", "ready", "up")
+    negative_tokens = ("inactive", "offline", "stopped", "failed", "dead", "error", "unhealthy", "down")
+    if any(token in text for token in positive_tokens) and not any(token in text for token in negative_tokens):
+        return True
+    if any(token in text for token in negative_tokens):
+        return False
+    return default
+
+
+def service_status_candidates(value):
+    if isinstance(value, dict):
+        candidates = []
+        for key in ("online", "is_online", "active", "is_active", "running", "ok", "healthy", "status", "state", "health", "result"):
+            if key in value:
+                candidates.append(value.get(key))
+        return candidates
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
+def resolve_service_online(entry):
+    candidates = []
+    if isinstance(entry, dict):
+        candidates.extend(
+            service_status_candidates(
+                {
+                    key: entry.get(key)
+                    for key in ("online", "is_online", "active", "is_active", "running", "ok", "healthy", "status", "state", "health", "result")
+                    if key in entry
+                }
+            )
+        )
+    elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
+        for value in entry[1:]:
+            candidates.extend(service_status_candidates(value))
+    else:
+        candidates.extend(service_status_candidates(entry))
+    seen = False
+    for value in candidates:
+        if value in (None, ""):
+            continue
+        seen = True
+        if coerce_service_online(value, default=False):
+            return True
+    if seen:
+        return False
+    return False
 
 
 def normalize_service_entries(services):
@@ -602,22 +649,19 @@ def normalize_service_entries(services):
         entries = list(services or [])
     for entry in entries:
         raw_name = ""
-        status_value = False
         if isinstance(entry, dict):
-            raw_name = str(entry.get("name") or entry.get("service") or entry.get("unit") or "").strip()
-            status_value = entry.get("online", entry.get("status", entry.get("active")))
+            raw_name = str(entry.get("name") or entry.get("service") or entry.get("unit") or entry.get("key") or "").strip()
         elif isinstance(entry, (list, tuple)) and len(entry) >= 2:
             raw_name = str(entry[0]).strip()
-            status_value = entry[1]
         else:
             continue
         if not raw_name:
             continue
-        is_online = coerce_service_online(status_value)
+        is_online = resolve_service_online(entry)
         upper_name = raw_name.upper().replace(".SERVICE", "")
         display_name = upper_name
         if upper_name in {"HYSTERIA", "HYSTERIA-UDP", "HYSTERIA SERVER", "HYSTERIA-SERVER"} or "HYSTERIA" in upper_name:
-            display_name = "HYSTERIA-SERVER"
+            display_name = "HYSTERIA"
         elif upper_name == "BADVPN":
             display_name = "BADVPN-UDPGW"
         elif upper_name == "MULTIPLEXER":
@@ -741,7 +785,7 @@ def get_status_payload():
         ["SSL", False],
         ["XRAY", False],
         ["BADVPN-UDPGW", False],
-        ["HYSTERIA-SERVER", False],
+        ["HYSTERIA", False],
         ["MULTIPLEXER", False],
         ["OPENVPN", False],
     ]
@@ -971,9 +1015,7 @@ def render_home():
       <div class="server-selector-head">
         <div>
           <div class="server-selector-kicker"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</div>
-          <div class="server-selector-title">Pick where new accounts should be created</div>
         </div>
-        <div class="server-selector-note">Each card points to a different VPS backend. Switch here before creating SSH, VLESS, Hysteria, or OpenVPN accounts.</div>
       </div>
       <div class="server-selector-grid">{''.join(server_cards)}</div>
     </div>"""
