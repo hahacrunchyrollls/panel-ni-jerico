@@ -67,6 +67,7 @@ last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
+app.url_map.strict_slashes = False
 
 
 def _clone(value):
@@ -311,7 +312,7 @@ def explicitly_selected_backend():
 def require_backend_selection():
     if has_explicit_backend_selection():
         return None
-    return redirect("/main/?error=" + urllib.parse.quote("Please choose a server first."), code=303)
+    return redirect("/main?error=" + urllib.parse.quote("Please choose a server first."), code=303)
 
 
 def selected_backend():
@@ -328,6 +329,11 @@ def set_selected_backend(backend_id):
         session["selected_backend_id"] = backend_id
         return True
     return False
+
+
+def clear_selected_backend():
+    if has_request_context():
+        session.pop("selected_backend_id", None)
 
 
 def backend_host(backend=None):
@@ -1421,7 +1427,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
   </script>
 </div>
 <script>
-document.addEventListener('DOMContentLoaded',function(){const p=window.location.pathname;document.querySelectorAll('.nav-link').forEach(a=>{const h=a.getAttribute('href');if(p===h||(p==='/'&&h==='/main/'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
+document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='/')return '/';return v.replace(/\/+$/,'')||'/';};const p=n(window.location.pathname);document.querySelectorAll('.nav-link').forEach(a=>{const h=n(a.getAttribute('href'));if(p===h||(p==='/'&&h==='/main'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
 </script>
 </body>
 </html>
@@ -1429,34 +1435,34 @@ document.addEventListener('DOMContentLoaded',function(){const p=window.location.
 
 
 def navbar_html():
-    announcement_link = '<a href="/readme/" class="nav-link"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
-    mobile_announcement = '<a href="/readme/"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
-    status_link = '<a href="/status/" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
-    mobile_status_link = '<a href="/status/"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
+    announcement_link = '<a href="/readme" class="nav-link"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
+    mobile_announcement = '<a href="/readme"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
+    status_link = '<a href="/status" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
+    mobile_status_link = '<a href="/status"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
     visitor_ip = html.escape(get_request_ip())
     return f"""
 <nav class="navbar">
-  <a href="/main/" class="navbar-brand">
+  <a href="/main" class="navbar-brand">
     <img src="/site-logo" alt="FUJI VPN" class="brand-icon">
     <span>FUJI VPN</span>
     <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.24rem .55rem;background:var(--surface);border-radius:999px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);white-space:nowrap;">IP: {visitor_ip}</span>
   </a>
   <div class="navbar-nav">
-    <a href="/main/" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
+    <a href="/main" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
     {status_link}
-    <a href="/hostname-to-ip/" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
-    <a href="/ip-lookup/" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
+    <a href="/hostname-to-ip" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
+    <a href="/ip-lookup" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {announcement_link}
-    <a href="/donate/" class="nav-link"><i class="fa-solid fa-donate"></i> Donate</a>
+    <a href="/donate" class="nav-link"><i class="fa-solid fa-donate"></i> Donate</a>
   </div>
   <button class="burger-btn" id="navbar-burger" type="button"><i class="fa-solid fa-bars"></i></button>
   <div class="mobile-menu" id="mobile-menu">
-    <a href="/main/"><i class="fa-solid fa-house"></i> Home</a>
+    <a href="/main"><i class="fa-solid fa-house"></i> Home</a>
     {mobile_status_link}
-    <a href="/hostname-to-ip/"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
-    <a href="/ip-lookup/"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
+    <a href="/hostname-to-ip"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
+    <a href="/ip-lookup"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {mobile_announcement}
-    <a href="/donate/"><i class="fa-solid fa-donate"></i> Donate</a>
+    <a href="/donate"><i class="fa-solid fa-donate"></i> Donate</a>
   </div>
 </nav>
 """
@@ -1480,7 +1486,7 @@ def build_service_cards():
         cards.append(
             f"""
 <div class="create-cell">
-  <a href="/{service}/" {anchor_attr}>
+  <a href="/{service}" {anchor_attr}>
     <button class="create-btn" {button_attr} style="{style_attr}">
       <div style="display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text-primary);"><img src="{icon}" style="height:1.1em;"> CREATE {label}</div>
       <div><span style="background:var(--primary-color);padding:4px 8px;border-radius:999px;font-weight:700;color:#fff;border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);">{created}/{daily_limit}</span></div>
@@ -1491,7 +1497,7 @@ def build_service_cards():
     return "".join(cards)
 
 
-def render_selected_server_note(change_href="/main/", include_change=True, margin_style="margin:0 auto 1.35rem auto;"):
+def render_selected_server_note(change_href="/main", include_change=True, margin_style="margin:0 auto 1.35rem auto;"):
     current_backend = explicitly_selected_backend()
     if not current_backend:
         return ""
@@ -1516,7 +1522,7 @@ def render_selected_server_note(change_href="/main/", include_change=True, margi
     )
 
 
-def render_server_selector(redirect_to="/services/"):
+def render_server_selector(redirect_to="/services", show_header=True):
     backends = load_backends()
     if not backends:
         return ""
@@ -1544,7 +1550,7 @@ def render_server_selector(redirect_to="/services/"):
         location_label = ", ".join(location_bits) if location_bits else display_label
         server_cards.append(
             f"""
-      <form method="POST" action="/select-server/" class="server-card-form">
+      <form method="POST" action="/select-server" class="server-card-form">
         <input type="hidden" name="backend_id" value="{html.escape(backend['id'])}">
         <input type="hidden" name="redirect_to" value="{html.escape(redirect_to)}">
         <button type="submit" class="server-card-button{active_class}">
@@ -1562,13 +1568,17 @@ def render_server_selector(redirect_to="/services/"):
         </button>
       </form>"""
         )
-    return f"""
-    <div class="server-selector">
+    header_html = ""
+    if show_header:
+        header_html = """
       <div class="server-selector-head">
         <div>
           <div class="server-selector-kicker"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</div>
         </div>
-      </div>
+      </div>"""
+    return f"""
+    <div class="server-selector">
+      {header_html}
       <div class="server-selector-grid">{''.join(server_cards)}</div>
     </div>"""
 
@@ -1576,13 +1586,13 @@ def render_server_selector(redirect_to="/services/"):
 def render_home():
     visits = bump_visit_count()
     enabled = backend_configured()
-    selector_html = render_server_selector("/services/")
+    selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
     continue_html = ""
     if enabled and has_explicit_backend_selection():
         continue_html = """
     <div style="margin:1.5rem auto 0 auto;max-width:420px;">
-      <a href="/services/" style="text-decoration:none;display:block;">
+      <a href="/services" style="text-decoration:none;display:block;">
         <button style="width:100%;"><i class="fa-solid fa-layer-group"></i> Continue to Service</button>
       </a>
     </div>"""
@@ -1651,7 +1661,7 @@ def render_services():
     selection_redirect = require_backend_selection()
     if selection_redirect:
         return selection_redirect
-    current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
+    current_server_note = render_selected_server_note(change_href="/main", include_change=True)
     cards = build_service_cards()
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
     return render_page(
@@ -1688,8 +1698,8 @@ def render_status():
     selection_redirect = require_backend_selection()
     if selection_redirect:
         return selection_redirect
-    current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
-    status_selector = render_server_selector("/status/")
+    current_server_note = render_selected_server_note(change_href="/main", include_change=True)
+    status_selector = render_server_selector("/status", show_header=False)
     return render_page(
         "Server Status",
         render_template_string(
@@ -1725,7 +1735,7 @@ def render_unavailable(service_name):
   <div style="color:var(--error);font-size:3rem;margin-bottom:1rem;"><i class="fa-solid fa-circle-exclamation"></i></div>
   <h2 class="section-title" style="color:var(--error);">{html.escape(service_name)} Not Available</h2>
   <div style="margin:1.5rem 0;color:var(--text-secondary);">This Vercel deployment keeps the design, but real account provisioning still needs a Linux VPS backend.</div>
-  <a href="/main/" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
+  <a href="/main" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
 </div></div>""",
     )
 
@@ -1754,7 +1764,7 @@ def render_service_form(service, error=None, values=None):
     label = service_label(service)
     icon = service_icon(service)
     days = get_create_account_expiry(service)
-    current_backend_note = render_selected_server_note(change_href="/main/", include_change=True, margin_style="margin:-.8rem auto 1.4rem auto;")
+    current_backend_note = render_selected_server_note(change_href="/main", include_change=True, margin_style="margin:-.8rem auto 1.4rem auto;")
     username_value = html.escape(values.get("username", ""))
     password_value = html.escape(values.get("password", ""))
     bypass_value = values.get("bypass_option", "")
@@ -1793,7 +1803,7 @@ def render_service_form(service, error=None, values=None):
   <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:2rem;">Create {label} account ({days} days)</div>
   {current_backend_note}
   {error_html}
-  <form method="POST" action="/{service}/">
+  <form method="POST" action="/{service}">
     <div class="form-group">
       <label for="{service}-username" class="form-label"><i class="fa-solid fa-user"></i> Username</label>
       <div class="form-input-container">
@@ -1806,7 +1816,7 @@ def render_service_form(service, error=None, values=None):
   </form>
   <script>
   (function() {{
-    var form = document.querySelector("form[action='/{service}/']");
+    var form = document.querySelector("form[action='/{service}']");
     if (form) {{
       form.addEventListener('submit', function(e) {{
         if (!form.checkValidity()) return;
@@ -1818,7 +1828,7 @@ def render_service_form(service, error=None, values=None):
     }}
   }})();
   </script>
-  <a href="/services/" style="display:block;margin-top:1.5rem;text-decoration:none;">
+  <a href="/services" style="display:block;margin-top:1.5rem;text-decoration:none;">
     <button style="width:100%;max-width:400px;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Service</button>
   </a>
 </div></div>"""
@@ -1936,7 +1946,7 @@ def render_service_result(service, result):
   }}
   </script>"""
     content += """
-  <a href="/services/" style="display:block;margin-top:1rem;text-decoration:none;">
+  <a href="/services" style="display:block;margin-top:1rem;text-decoration:none;">
     <button style="width:100%;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Service</button>
   </a>
 </div></div>"""
@@ -1947,24 +1957,24 @@ def render_lookup_pages():
     hostname_page = """
 <div class="container"><div class="neo-box" style="max-width:500px;margin:0 auto;text-align:center;">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-globe" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Hostname to IP</h2></div>
-  <form id="hostname-form" method="POST" action="/hostname-to-ip/" style="margin-bottom:2em;">
+  <form id="hostname-form" method="POST" action="/hostname-to-ip" style="margin-bottom:2em;">
     <div class="form-group"><label for="hostname" class="form-label"><i class="fa-solid fa-globe"></i> Hostname</label><div class="form-input-container"><input name="hostname" id="hostname" type="text" placeholder="Enter hostname (e.g. google.com)" required maxlength="255"></div></div>
     <button type="submit" style="width:100%;max-width:400px;margin:0 auto;"><i class="fa-solid fa-magnifying-glass"></i> Check IP Address</button>
   </form><div id="hostname-result"></div>
 </div></div>
 <script>
-document.getElementById('hostname-form').addEventListener('submit',function(e){e.preventDefault();const hostname=document.getElementById('hostname').value.trim();const resultDiv=document.getElementById('hostname-result');resultDiv.innerHTML='<div style="color:var(--text-muted);margin-top:1em;"><i class="fa-solid fa-spinner fa-spin"></i> Checking...</div>';fetch('/hostname-to-ip/',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'hostname='+encodeURIComponent(hostname)}).then(r=>r.text()).then(html=>{resultDiv.innerHTML=html;}).catch(()=>{resultDiv.innerHTML='<div style="color:var(--error);margin-top:1em;">Error checking hostname.</div>';});});
+document.getElementById('hostname-form').addEventListener('submit',function(e){e.preventDefault();const hostname=document.getElementById('hostname').value.trim();const resultDiv=document.getElementById('hostname-result');resultDiv.innerHTML='<div style="color:var(--text-muted);margin-top:1em;"><i class="fa-solid fa-spinner fa-spin"></i> Checking...</div>';fetch('/hostname-to-ip',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'hostname='+encodeURIComponent(hostname)}).then(r=>r.text()).then(html=>{resultDiv.innerHTML=html;}).catch(()=>{resultDiv.innerHTML='<div style="color:var(--error);margin-top:1em;">Error checking hostname.</div>';});});
 </script>"""
     ip_page = """
 <div class="container"><div class="neo-box" style="max-width:600px;margin:0 auto;text-align:center;">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-location-dot" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">IP Lookup</h2></div>
-  <form id="ip-form" method="POST" action="/ip-lookup/" style="margin-bottom:2em;">
+  <form id="ip-form" method="POST" action="/ip-lookup" style="margin-bottom:2em;">
     <div class="form-group"><label for="ip" class="form-label"><i class="fa-solid fa-network-wired"></i> IP Address</label><div class="form-input-container"><input name="ip" id="ip" type="text" placeholder="Enter IP (leave blank for your IP)" maxlength="255"></div></div>
     <button type="submit" style="width:100%;max-width:400px;margin:0 auto;"><i class="fa-solid fa-magnifying-glass"></i> Lookup</button>
   </form><div id="ip-result"></div>
 </div></div>
 <script>
-document.getElementById('ip-form').addEventListener('submit',function(e){e.preventDefault();const ip=document.getElementById('ip').value.trim();const resultDiv=document.getElementById('ip-result');resultDiv.innerHTML='<div style="color:var(--text-muted);margin-top:1em;"><i class="fa-solid fa-spinner fa-spin"></i> Looking up...</div>';fetch('/ip-lookup/',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)}).then(r=>r.text()).then(html=>{resultDiv.innerHTML=html;}).catch(()=>{resultDiv.innerHTML='<div style="color:var(--error);margin-top:1em;">Error performing lookup.</div>';});});
+document.getElementById('ip-form').addEventListener('submit',function(e){e.preventDefault();const ip=document.getElementById('ip').value.trim();const resultDiv=document.getElementById('ip-result');resultDiv.innerHTML='<div style="color:var(--text-muted);margin-top:1em;"><i class="fa-solid fa-spinner fa-spin"></i> Looking up...</div>';fetch('/ip-lookup',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'ip='+encodeURIComponent(ip)}).then(r=>r.text()).then(html=>{resultDiv.innerHTML=html;}).catch(()=>{resultDiv.innerHTML='<div style="color:var(--error);margin-top:1em;">Error performing lookup.</div>';});});
 </script>"""
     return hostname_page, ip_page
 
@@ -1977,7 +1987,7 @@ def render_donate():
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;"><i class="fa-solid fa-donate" style="font-size:1.6em;color:var(--primary-color);"></i><h2 class="section-title" style="margin:0;">Gcash Donation</h2></div>
   <div style="margin-top:.6rem;"><img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/Donate.png" alt="Donate" style="max-width:100%;height:auto;border-radius:12px;border:1px solid var(--card-border);"></div>
   <div style="margin-top:1rem;color:var(--text-secondary);">Thank you for supporting all donation will be appreciated.</div>
-  <a href="/main/" style="display:block;margin-top:1.2rem;text-decoration:none;"><button style="width:100%;max-width:320px;margin:.8rem auto 0;display:block;"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
+  <a href="/main" style="display:block;margin-top:1.2rem;text-decoration:none;"><button style="width:100%;max-width:320px;margin:.8rem auto 0;display:block;"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
 </div></div>""",
     )
 
@@ -1989,7 +1999,7 @@ def render_readme():
 <div class="container"><div class="neo-box" style="max-width:800px;margin:0 auto;">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-bullhorn" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">ANNOUNCEMENT!</h2></div>
   <div class="announcement-content" style="font-size:1.1em;color:var(--text-primary);padding:1em 0;">{announcement_html()}</div>
-  <div style="display:flex;justify-content:center;margin-top:1.5rem;"><a href="/main/" style="text-decoration:none;display:inline-block;width:100%;"><button style="width:100%;max-width:400px;min-width:220px;font-size:1.15em;padding:16px 0;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);border-radius:16px;font-weight:700;box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div>
+  <div style="display:flex;justify-content:center;margin-top:1.5rem;"><a href="/main" style="text-decoration:none;display:inline-block;width:100%;"><button style="width:100%;max-width:400px;min-width:220px;font-size:1.15em;padding:16px 0;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);border-radius:16px;font-weight:700;box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div>
 </div></div>""",
     )
 
@@ -2004,7 +2014,7 @@ def render_admin(success=None, error=None):
 <div class="container"><div class="neo-box" style="max-width:620px;margin:0 auto;">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;"><div style="height:46px;width:46px;border-radius:14px;background:rgba(6,182,212,.16);border:1px solid rgba(6,182,212,.28);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-lock" style="color:var(--accent-color);"></i></div><div><h2 class="section-title" style="margin:0;font-size:1.6rem;">Admin Login</h2><div style="color:var(--text-muted);font-size:.95rem;">Use environment-based credentials for this Vercel deployment.</div></div></div>
   {hint}{message}
-  <form method="POST" action="/admin/"><input type="hidden" name="action" value="login">
+  <form method="POST" action="/admin"><input type="hidden" name="action" value="login">
     <div class="form-group"><label class="form-label" for="admin-username"><i class="fa-solid fa-user-shield"></i> Username</label><div class="form-input-container"><input id="admin-username" name="username" type="text" required placeholder="root"></div></div>
     <div class="form-group"><label class="form-label" for="admin-password"><i class="fa-solid fa-key"></i> Password</label><div class="form-input-container"><input id="admin-password" name="password" type="password" required placeholder="Admin password"></div></div>
     <button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-right-to-bracket"></i> Sign In</button>
@@ -2029,8 +2039,8 @@ def render_admin(success=None, error=None):
       <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
     <div class="status-grid-2" style="margin-top:1.2rem;">
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><form method="POST" action="/admin/" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><form method="POST" action="/admin/" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form></div>
     </div>
     <div style="margin-top:1.2rem;"><div style="font-weight:700;margin-bottom:.8rem;">Recent Audit</div>{event_cards}</div>
   </div>
@@ -2089,18 +2099,19 @@ def favicon_legacy():
 
 
 @app.get("/")
-@app.get("/main/")
+@app.get("/main")
 def main_page():
+    clear_selected_backend()
     return render_home()
 
 
-@app.get("/service/")
-@app.get("/services/")
+@app.get("/service")
+@app.get("/services")
 def services_page():
     return render_services()
 
 
-@app.get("/status/")
+@app.get("/status")
 def status_page():
     return render_status()
 
@@ -2146,12 +2157,12 @@ def chat_send_route():
     return jsonify({"ok": True})
 
 
-@app.get("/hostname-to-ip/")
+@app.get("/hostname-to-ip")
 def hostname_lookup_page():
     return render_page("Hostname to IP", hostname_page_html)
 
 
-@app.post("/hostname-to-ip/")
+@app.post("/hostname-to-ip")
 def hostname_lookup_action():
     hostname = (request.form.get("hostname") or "").strip()
     if not hostname:
@@ -2163,12 +2174,12 @@ def hostname_lookup_action():
         return f'<div style="color:var(--error);margin-top:1em;"><i class="fa-solid fa-circle-xmark"></i> Could not resolve hostname: {html.escape(hostname)}</div>'
 
 
-@app.get("/ip-lookup/")
+@app.get("/ip-lookup")
 def ip_lookup_page():
     return render_page("IP Lookup", ip_page_html)
 
 
-@app.post("/ip-lookup/")
+@app.post("/ip-lookup")
 def ip_lookup_action():
     ip = (request.form.get("ip") or "").strip() or get_request_ip()
     try:
@@ -2200,25 +2211,25 @@ def ip_lookup_action():
 </div>"""
 
 
-@app.get("/donate/")
+@app.get("/donate")
 def donate_page():
     return render_donate()
 
 
-@app.get("/readme/")
+@app.get("/readme")
 def readme_page():
     return render_readme()
 
 
-@app.post("/select-server/")
+@app.post("/select-server")
 def select_server():
     backend_id = (request.form.get("backend_id") or "").strip()
-    redirect_to = (request.form.get("redirect_to") or "/services/").strip()
+    redirect_to = (request.form.get("redirect_to") or "/services").strip()
     if not redirect_to.startswith("/") or redirect_to.startswith("//"):
-        redirect_to = "/services/"
+        redirect_to = "/services"
     if set_selected_backend(backend_id):
         return redirect(redirect_to, code=303)
-    return redirect("/main/?error=" + urllib.parse.quote("Invalid server selection."), code=303)
+    return redirect("/main?error=" + urllib.parse.quote("Invalid server selection."), code=303)
 
 
 def submit_service_request(service):
@@ -2254,52 +2265,52 @@ def submit_service_request(service):
         return render_service_form(service, error=backend_error_message(exc), values=values)
 
 
-@app.get("/ssh/")
+@app.get("/ssh")
 def ssh_page():
     return render_service_form("ssh")
 
 
-@app.post("/ssh/")
+@app.post("/ssh")
 def ssh_create():
     return submit_service_request("ssh")
 
 
-@app.get("/vless/")
+@app.get("/vless")
 def vless_page():
     return render_service_form("vless")
 
 
-@app.post("/vless/")
+@app.post("/vless")
 def vless_create():
     return submit_service_request("vless")
 
 
-@app.get("/hysteria/")
+@app.get("/hysteria")
 def hysteria_page():
     return render_service_form("hysteria")
 
 
-@app.post("/hysteria/")
+@app.post("/hysteria")
 def hysteria_create():
     return submit_service_request("hysteria")
 
 
-@app.get("/openvpn/")
+@app.get("/openvpn")
 def openvpn_page():
     return render_service_form("openvpn")
 
 
-@app.post("/openvpn/")
+@app.post("/openvpn")
 def openvpn_create():
     return submit_service_request("openvpn")
 
 
-@app.get("/admin/")
+@app.get("/admin")
 def admin_page():
     return render_admin(request.args.get("success"), request.args.get("error"))
 
 
-@app.post("/admin/")
+@app.post("/admin")
 def admin_post():
     action = request.form.get("action", "")
     if action == "login":
@@ -2308,37 +2319,37 @@ def admin_post():
         if admin_credentials_valid(username, password):
             session["admin_authenticated"] = True
             log_admin_event("login", "success", {"username": username})
-            return redirect("/admin/")
+            return redirect("/admin")
         log_admin_event("login", "failed", {"username": username})
         return render_admin(error="Invalid admin credentials.")
     if not session.get("admin_authenticated"):
         log_admin_event("unauthorized_admin_action", "failed", {"action": action})
-        return redirect("/admin/")
+        return redirect("/admin")
     if action == "update_limit":
         if set_daily_account_limit(request.form.get("limit", "")):
             log_admin_event("update_limit", "success", {"limit": request.form.get("limit", "")})
-            return redirect("/admin/?success=" + urllib.parse.quote("Daily account limit updated."), code=303)
-        return redirect("/admin/?error=" + urllib.parse.quote("Failed to update limit."), code=303)
+            return redirect("/admin?success=" + urllib.parse.quote("Daily account limit updated."), code=303)
+        return redirect("/admin?error=" + urllib.parse.quote("Failed to update limit."), code=303)
     if action == "update_create_expiry":
         service = request.form.get("service", "")
         days = request.form.get("days", "")
         if set_create_account_expiry(service, days):
             log_admin_event("update_create_expiry", "success", {"service": service, "days": days})
-            return redirect("/admin/?success=" + urllib.parse.quote(f"New account expiration updated for {service.upper()}."), code=303)
-        return redirect("/admin/?error=" + urllib.parse.quote("Failed to update new account expiration."), code=303)
-    return redirect("/admin/?error=" + urllib.parse.quote("Unknown admin action."), code=303)
+            return redirect("/admin?success=" + urllib.parse.quote(f"New account expiration updated for {service.upper()}."), code=303)
+        return redirect("/admin?error=" + urllib.parse.quote("Failed to update new account expiration."), code=303)
+    return redirect("/admin?error=" + urllib.parse.quote("Unknown admin action."), code=303)
 
 
 @app.get("/admin/logout")
 def admin_logout():
     session.pop("admin_authenticated", None)
     log_admin_event("logout", "success", {})
-    return redirect("/admin/")
+    return redirect("/admin")
 
 
 @app.errorhandler(404)
 def not_found(_error):
-    return render_page("Not Found", '<div class="container"><div class="neo-box" style="max-width:500px;margin:0 auto;text-align:center;"><div style="color:var(--warning);font-size:3rem;margin-bottom:1rem;"><i class="fa-solid fa-compass-drafting"></i></div><h2 class="section-title">Page Not Found</h2><div style="margin:1.5rem 0;color:var(--text-secondary);">That route does not exist in this deployment.</div><a href="/main/" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div></div>'), 404
+    return render_page("Not Found", '<div class="container"><div class="neo-box" style="max-width:500px;margin:0 auto;text-align:center;"><div style="color:var(--warning);font-size:3rem;margin-bottom:1rem;"><i class="fa-solid fa-compass-drafting"></i></div><h2 class="section-title">Page Not Found</h2><div style="margin:1.5rem 0;color:var(--text-secondary);">That route does not exist in this deployment.</div><a href="/main" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div></div>'), 404
 
 
 if __name__ == "__main__":
