@@ -2571,6 +2571,7 @@ def render_service_result(service, result):
     password = html.escape(str(result.get("password", "")))
     domain = html.escape(str(result.get("domain", current_host())))
     current_backend = selected_backend()
+    backend_name = html.escape(backend_display_label(current_backend)) if current_backend else ""
     ssh_details_raw = ""
     if service == "ssh":
         for key in ("ssh_details", "server_info", "details", "output", "info", "message"):
@@ -2601,7 +2602,7 @@ def render_service_result(service, result):
 <div class="container"><div class="neo-box">
   <div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>Success! Your {label} account has been created.</div></div>
   <div class="info-grid">
-    {"<div>Server:</div><div>" + html.escape(current_backend["label"]) + "</div>" if current_backend else ""}
+    {"<div>Server:</div><div>" + backend_name + "</div>" if current_backend else ""}
     <div>Service:</div><div>{html.escape(label)}</div>
     <div>Username:</div><div>{username}</div>
     {"<div>Password:</div><div>" + password + "</div>" if result.get("password") else ""}
