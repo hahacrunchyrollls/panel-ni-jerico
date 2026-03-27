@@ -1533,35 +1533,37 @@ def render_admin_account_card(account):
     status_style = "background:rgba(16,185,129,.12);color:var(--success);" if account.get("active") else "background:rgba(239,68,68,.12);color:var(--error);"
     confirm_text = json.dumps(f"Remove {username} from {service_name} on {account.get('backend_label', 'this server')}?")
     return f"""
-<div class="link-box" style="display:flex;flex-direction:column;gap:.9rem;">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
-    <div>
-      <div style="font-weight:800;font-size:1.05rem;">{username_display}</div>
-      <div style="color:var(--text-muted);font-size:.92rem;">{service_name}</div>
+<div class="link-box admin-account-card">
+  <div class="admin-account-card-head">
+    <div class="admin-account-card-copy">
+      <div class="admin-account-card-name">{username_display}</div>
+      <div class="admin-account-card-service">{service_name}</div>
     </div>
-    <div style="padding:6px 10px;border-radius:999px;border:2px solid var(--card-border);{status_style}font-weight:700;">{status_label}</div>
+    <div class="admin-account-status" style="{status_style}">{status_label}</div>
   </div>
-  <div style="color:var(--text-secondary);font-size:.94rem;display:grid;gap:6px;">
+  <div class="admin-account-meta">
     <div><strong>Expires:</strong> {html.escape(expires_text)}</div>
     <div><strong>Remaining:</strong> {html.escape(remaining_text)}</div>
   </div>
-  <form method="POST" action="/admin" style="margin:0;">
+  <form method="POST" action="/admin" class="admin-account-form">
     <input type="hidden" name="action" value="update_account_expiry">
     <input type="hidden" name="backend_id" value="{backend_attr}">
     <input type="hidden" name="service" value="{service_attr}">
     <input type="hidden" name="username" value="{username_attr}">
-    <div class="form-group" style="margin-bottom:.7rem;">
-      <label class="form-label" style="font-size:.9rem;">New expiration in days from now</label>
-      <div class="form-input-container" style="max-width:none;"><input type="number" name="days" min="1" max="3650" value="{default_account_expiry_days(account)}"></div>
+    <div class="admin-account-expiry-row">
+      <div class="admin-account-expiry-copy">Days</div>
+      <div class="admin-account-expiry-controls">
+        <input type="number" name="days" min="1" max="3650" value="{default_account_expiry_days(account)}">
+        <button type="submit" class="admin-account-action"><i class="fa-solid fa-calendar-check"></i> Update</button>
+      </div>
     </div>
-    <button type="submit" style="width:100%;max-width:none;"><i class="fa-solid fa-calendar-check"></i> Change Expiration</button>
   </form>
-  <form method="POST" action="/admin" style="margin:0;" onsubmit='return confirm({confirm_text});'>
+  <form method="POST" action="/admin" class="admin-account-form" onsubmit='return confirm({confirm_text});'>
     <input type="hidden" name="action" value="delete_account">
     <input type="hidden" name="backend_id" value="{backend_attr}">
     <input type="hidden" name="service" value="{service_attr}">
     <input type="hidden" name="username" value="{username_attr}">
-    <button type="submit" style="width:100%;max-width:none;background:linear-gradient(180deg,#fff5f5 0%,#ffdfe4 100%);color:var(--error);border:3px solid rgba(127,29,29,.35);box-shadow:4px 4px 0 rgba(127,29,29,.18);"><i class="fa-solid fa-trash"></i> Remove Account</button>
+    <button type="submit" class="admin-account-action admin-account-delete"><i class="fa-solid fa-trash"></i> Remove</button>
   </form>
 </div>"""
 
@@ -1598,7 +1600,7 @@ def render_admin_account_manager():
     <div style="font-weight:800;">{html.escape(label)} Accounts</div>
     <div style="color:var(--text-muted);font-size:.92rem;">{len(service_accounts)} total</div>
   </div>
-  <div class="services-grid">{cards_html}</div>
+  <div class="admin-account-grid">{cards_html}</div>
 </div>"""
                 )
             body = "".join(service_blocks)
@@ -2417,6 +2419,21 @@ form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bot
 .stats-container{display:flex;justify-content:center;gap:1rem;margin:1.5rem 0;flex-wrap:wrap;}
 .stat-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:.8rem 1.5rem;display:flex;align-items:center;gap:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);flex:1;min-width:200px;max-width:300px;}
 .stat-icon{color:var(--primary-color);font-size:1.2rem}.stat-value{font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1.3rem;letter-spacing:.04em}.stat-label{font-size:.9rem;color:var(--text-secondary);font-weight:700}
+.admin-account-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+.admin-account-card{padding:.85rem;display:flex;flex-direction:column;gap:.65rem}
+.admin-account-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.admin-account-card-copy{min-width:0}
+.admin-account-card-name{font-weight:800;font-size:1rem;line-height:1.2;word-break:break-word}
+.admin-account-card-service{color:var(--text-muted);font-size:.82rem;margin-top:.2rem}
+.admin-account-status{padding:4px 9px;border-radius:999px;border:2px solid var(--card-border);font-weight:800;font-size:.8rem;line-height:1;white-space:nowrap}
+.admin-account-meta{color:var(--text-secondary);font-size:.85rem;display:grid;gap:4px;line-height:1.35}
+.admin-account-form{margin:0}
+.admin-account-expiry-row{display:grid;gap:6px}
+.admin-account-expiry-copy{font-size:.75rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
+.admin-account-expiry-controls{display:grid;grid-template-columns:minmax(0,88px) 1fr;gap:8px;align-items:center}
+.admin-account-expiry-controls input{max-width:none;padding:10px 12px;border-width:2px;border-radius:14px;font-size:.95rem}
+.admin-account-action{width:100%;max-width:none;padding:10px 12px;font-size:.9rem;border-radius:14px;box-shadow:3px 3px 0 rgba(31,6,12,.22)}
+.admin-account-delete{background:linear-gradient(180deg,#fff5f5 0%,#ffdfe4 100%);color:var(--error);border:3px solid rgba(127,29,29,.35);box-shadow:3px 3px 0 rgba(127,29,29,.16)}
 .server-selector{max-width:760px;margin:0 auto 1.35rem auto;padding:1.1rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
 .server-selector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1rem;text-align:left;}
 .server-selector-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--primary-color);font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1rem;letter-spacing:.08em;text-transform:uppercase;}
@@ -2458,7 +2475,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}}
+@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid,.admin-account-expiry-controls{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.admin-account-card-head{align-items:flex-start}.admin-account-status{justify-self:flex-start}}
 </style>
 </head>
 <body>
