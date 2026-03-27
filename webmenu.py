@@ -2657,7 +2657,7 @@ def render_server_selector(redirect_to="/services", show_header=True):
 def render_home():
     visits = bump_visit_count()
     enabled = backend_configured()
-    counters = load_backend_summary_counters() if enabled else _empty_backend_summary()
+    counters = load_backend_summary_counters(force=True) if enabled else _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
     selector_html = render_server_selector("/services")
@@ -3344,7 +3344,7 @@ def status_full():
 @app.get("/main/stats")
 def main_stats():
     visits = load_visits()
-    counters = load_backend_summary_counters()
+    counters = load_backend_summary_counters(force=True)
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     response = jsonify(
         {
