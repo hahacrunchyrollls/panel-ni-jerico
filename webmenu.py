@@ -41,6 +41,7 @@ CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
 SERVER_HEALTH_CACHE_TTL = 15
 SERVER_HEALTH_TIMEOUT = 2
+REMOTE_PANEL_CONFIG_CACHE_TTL = 15
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
@@ -70,6 +71,8 @@ traffic_lock = threading.Lock()
 server_health_lock = threading.Lock()
 last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
 server_health_cache = {}
+panel_config_lock = threading.Lock()
+panel_config_cache = {"loaded_at": 0.0, "config": None}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
@@ -200,27 +203,22 @@ def load_numbered_backends():
     return [backend for _, backend in indexed]
 
 
+def default_panel_config():
+    return {
+        "daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT,
+        "create_expiry": dict(CREATE_EXPIRY_DEFAULTS),
+        "vless_bypass_options": [],
+        "updated_at": 0,
+    }
+
+
 def load_config():
-    config = load_json(
-        CONFIG_FILE,
-        {"daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT, "create_expiry": dict(CREATE_EXPIRY_DEFAULTS), "vless_bypass_options": []},
-    )
-    config.setdefault("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)
-    config.setdefault("create_expiry", dict(CREATE_EXPIRY_DEFAULTS))
-    raw_bypass_options = config.get("vless_bypass_options")
-    if raw_bypass_options is None and "bypass_options" in config:
-        raw_bypass_options = config.get("bypass_options")
-    for service, default in CREATE_EXPIRY_DEFAULTS.items():
-        try:
-            config["create_expiry"][service] = max(1, min(int(config["create_expiry"].get(service, default)), 3650))
-        except Exception:
-            config["create_expiry"][service] = default
-    try:
-        config["daily_limit"] = max(1, min(int(config["daily_limit"]), 999))
-    except Exception:
-        config["daily_limit"] = DAILY_ACCOUNT_LIMIT_DEFAULT
-    config["vless_bypass_options"] = normalize_vless_bypass_options(raw_bypass_options)
-    return config
+    local_config = load_local_panel_config()
+    if backend_configured() and (IS_VERCEL or int(local_config.get("updated_at", 0) or 0) == 0):
+        remote_config = load_remote_panel_config()
+        if remote_config and int(remote_config.get("updated_at", 0) or 0) >= int(local_config.get("updated_at", 0) or 0):
+            return remote_config
+    return local_config
 
 
 def load_backends():
@@ -275,6 +273,104 @@ def load_backends():
 
 def backend_configured():
     return bool(load_backends())
+
+
+def normalize_panel_config(raw_config):
+    config = raw_config if isinstance(raw_config, dict) else {}
+    normalized = default_panel_config()
+    raw_expiry = config.get("create_expiry")
+    if not isinstance(raw_expiry, dict):
+        raw_expiry = {}
+    for service, default in CREATE_EXPIRY_DEFAULTS.items():
+        try:
+            normalized["create_expiry"][service] = max(1, min(int(raw_expiry.get(service, default)), 3650))
+        except Exception:
+            normalized["create_expiry"][service] = default
+    raw_bypass_options = config.get("vless_bypass_options")
+    if raw_bypass_options is None and "bypass_options" in config:
+        raw_bypass_options = config.get("bypass_options")
+    normalized["vless_bypass_options"] = normalize_vless_bypass_options(raw_bypass_options)
+    try:
+        normalized["daily_limit"] = max(1, min(int(config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)), 999))
+    except Exception:
+        normalized["daily_limit"] = DAILY_ACCOUNT_LIMIT_DEFAULT
+    try:
+        normalized["updated_at"] = max(int(config.get("updated_at", 0) or 0), 0)
+    except Exception:
+        normalized["updated_at"] = 0
+    return normalized
+
+
+def load_local_panel_config():
+    return normalize_panel_config(load_json(CONFIG_FILE, default_panel_config()))
+
+
+def cache_panel_config(config):
+    normalized = normalize_panel_config(config)
+    with panel_config_lock:
+        panel_config_cache["loaded_at"] = time.time()
+        panel_config_cache["config"] = dict(normalized)
+    return normalized
+
+
+def load_remote_panel_config(force=False):
+    if not backend_configured():
+        return None
+    now = time.time()
+    with panel_config_lock:
+        cached = panel_config_cache.get("config")
+        loaded_at = float(panel_config_cache.get("loaded_at", 0.0) or 0.0)
+        if cached and not force and now - loaded_at < REMOTE_PANEL_CONFIG_CACHE_TTL:
+            return dict(cached)
+    best_config = None
+    best_updated_at = -1
+    for backend in load_backends():
+        try:
+            data = backend_request_for(backend, "/panel-config", payload=None, method="GET")
+        except Exception:
+            continue
+        candidate = normalize_panel_config(data.get("config", data) if isinstance(data, dict) else {})
+        updated_at = int(candidate.get("updated_at", 0) or 0)
+        if best_config is None or updated_at >= best_updated_at:
+            best_config = candidate
+            best_updated_at = updated_at
+    if best_config:
+        save_json(CONFIG_FILE, best_config)
+        cache_panel_config(best_config)
+    return best_config
+
+
+def push_panel_config_to_backends(config):
+    if not backend_configured():
+        return True
+    normalized = normalize_panel_config(config)
+    successful_syncs = 0
+    latest_config = normalized
+    for backend in load_backends():
+        try:
+            data = backend_request_for(backend, "/panel-config", payload=normalized, method="POST")
+            successful_syncs += 1
+            if isinstance(data, dict) and isinstance(data.get("config"), dict):
+                latest_config = normalize_panel_config(data["config"])
+        except Exception:
+            continue
+    if successful_syncs:
+        save_json(CONFIG_FILE, latest_config)
+        cache_panel_config(latest_config)
+    return successful_syncs > 0
+
+
+def save_panel_config(config):
+    normalized = normalize_panel_config(config)
+    normalized["updated_at"] = max(int(time.time()), int(normalized.get("updated_at", 0) or 0))
+    local_ok = save_json(CONFIG_FILE, normalized)
+    cache_panel_config(normalized)
+    if not backend_configured():
+        return local_ok
+    remote_ok = push_panel_config_to_backends(normalized)
+    if IS_VERCEL:
+        return bool(local_ok and remote_ok)
+    return bool(local_ok or remote_ok)
 
 
 def default_backend_id():
@@ -573,7 +669,7 @@ def set_daily_account_limit(value):
     with state_lock:
         config = load_config()
         config["daily_limit"] = limit
-        return save_json(CONFIG_FILE, config)
+        return save_panel_config(config)
 
 
 def get_create_account_expiry(service=None):
@@ -593,7 +689,7 @@ def set_create_account_expiry(service, days):
     with state_lock:
         config = load_config()
         config["create_expiry"][service] = value
-        return save_json(CONFIG_FILE, config)
+        return save_panel_config(config)
 
 
 def _clean_bypass_field(value, limit=255):
@@ -668,7 +764,7 @@ def save_vless_bypass_options(raw_options):
     with state_lock:
         config = load_config()
         config["vless_bypass_options"] = normalized
-        return save_json(CONFIG_FILE, config), normalized
+        return save_panel_config(config), normalized
 
 
 def set_vless_bypass_options_from_json(raw_json):
