@@ -1585,23 +1585,32 @@ def render_admin_account_manager():
         elif not accounts:
             body = '<div class="success-msg" style="margin-top:1rem;background:rgba(124,16,39,.06);border-left-color:var(--warning);"><i class="fa-solid fa-circle-info" style="color:var(--warning);"></i><div>No managed accounts found on this server yet.</div></div>'
         else:
-            service_blocks = []
+            service_order = {service: index for index, (service, _label, _icon) in enumerate(SERVICE_META)}
+            ordered_accounts = sorted(
+                accounts,
+                key=lambda account: (
+                    service_order.get(str(account.get("service", "") or "").strip().lower(), len(service_order)),
+                    str(account.get("username", "") or "").strip().lower(),
+                ),
+            )
+            summary_bits = []
             for service, label, _icon in SERVICE_META:
-                service_accounts = [account for account in accounts if account.get("service") == service]
-                if not service_accounts:
-                    continue
-                cards_html = "".join(render_admin_account_card(account) for account in service_accounts)
-                service_blocks.append(
-                    f"""
+                service_total = sum(1 for account in ordered_accounts if account.get("service") == service)
+                if service_total:
+                    summary_bits.append(
+                        f'<span class="server-badge" style="background:rgba(124,16,39,.08);">{html.escape(label)}: {service_total}</span>'
+                    )
+            summary_html = "".join(summary_bits)
+            cards_html = "".join(render_admin_account_card(account) for account in ordered_accounts)
+            body = f"""
 <div style="margin-top:1rem;">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:.7rem;">
-    <div style="font-weight:800;">{html.escape(label)} Accounts</div>
-    <div style="color:var(--text-muted);font-size:.92rem;">{len(service_accounts)} total</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:.75rem;">
+    <div style="font-weight:800;">Server Accounts</div>
+    <div style="color:var(--text-muted);font-size:.92rem;">{len(ordered_accounts)} total</div>
   </div>
+  {'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.9rem;">' + summary_html + '</div>' if summary_html else ''}
   <div class="admin-account-grid">{cards_html}</div>
 </div>"""
-                )
-            body = "".join(service_blocks)
         sections.append(
             f"""
 <div class="link-box" style="margin-top:1rem;">
@@ -2392,7 +2401,8 @@ button:hover,button:focus{transform:translate(3px,3px);box-shadow:2px 2px 0 var(
 .section-title{font-family:'Bangers','Comic Neue',cursive;font-size:clamp(2rem,5vw,3rem);letter-spacing:.08em;margin-bottom:1rem;color:var(--primary-color);background:none;-webkit-text-fill-color:initial;text-shadow:2px 2px 0 rgba(31,6,12,.14);}
 .success-msg{display:flex;align-items:center;background:linear-gradient(180deg,#ffffff 0%,#fff6f8 100%);border:3px solid var(--success);border-radius:var(--border-radius);padding:1rem;margin-bottom:1.5rem;font-weight:700;font-size:1.05em;color:var(--text-primary);box-shadow:4px 4px 0 rgba(93,9,25,.24);}
 .info-grid,.status-grid-2,.services-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.admin-account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.admin-account-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
+.admin-account-grid > *{min-width:0;}
 .info-grid{gap:.8rem 1.2rem;font-family:'Comic Neue','Trebuchet MS',sans-serif;background:linear-gradient(180deg,#ffffff 0%,#fff7f8 100%);border-radius:var(--border-radius);padding:1.2rem;margin-bottom:1.5rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);}
 .info-grid div:nth-child(2n){font-weight:700;color:var(--primary-color);word-break:break-all;}
 .link-box,.status-card,.service-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:1rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);}
