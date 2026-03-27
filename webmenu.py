@@ -341,6 +341,29 @@ def backend_host(backend=None):
     return current_host()
 
 
+def backend_display_label(backend=None):
+    backend = backend or selected_backend()
+    if not backend:
+        return "Unknown"
+    raw_label = str(backend.get("label", "")).strip()
+    backend_id = str(backend.get("id", "")).strip()
+    generic_label = (
+        not raw_label
+        or raw_label == backend_id
+        or raw_label.lower() in {"server", "main server", "default"}
+        or re.fullmatch(r"server[_\-\s]*\d+", raw_label, flags=re.IGNORECASE) is not None
+    )
+    if generic_label:
+        backend_geo = backend_location(backend)
+        country = str(backend.get("country") or backend_geo.get("country") or "").strip()
+        if country and country.lower() != "unknown":
+            return country
+        city = str(backend.get("city") or backend_geo.get("city") or "").strip()
+        if city:
+            return city
+    return raw_label or backend_id or backend_host(backend)
+
+
 def backend_location(backend=None):
     backend = backend or selected_backend()
     if backend and backend.get("country") and backend.get("countryCode"):
@@ -1472,6 +1495,7 @@ def render_selected_server_note(change_href="/main/", include_change=True, margi
         return ""
     backend_geo = backend_location(current_backend)
     location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
+    display_label = backend_display_label(current_backend)
     change_link = ""
     if include_change:
         change_link = f'<a href="{html.escape(change_href)}" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
@@ -1479,7 +1503,7 @@ def render_selected_server_note(change_href="/main/", include_change=True, margi
         f'<div class="server-current-pill" style="{margin_style}max-width:760px;">'
         '<span class="server-current-dot"></span>'
         '<span>Selected server</span>'
-        f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
+        f'<span class="server-current-name">{html.escape(display_label)}</span>'
         + (
             f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
             if location_bits
@@ -1498,6 +1522,7 @@ def render_server_selector(redirect_to="/services/"):
     server_cards = []
     for backend in backends:
         backend_geo = backend_location(backend)
+        display_label = backend_display_label(backend)
         country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
         city = backend.get("city") or backend_geo.get("city") or ""
         country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
@@ -1514,7 +1539,7 @@ def render_server_selector(redirect_to="/services/"):
             else '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Select</span>'
         )
         location_bits = [bit for bit in [city, country] if bit]
-        location_label = ", ".join(location_bits) if location_bits else backend["label"]
+        location_label = ", ".join(location_bits) if location_bits else display_label
         server_cards.append(
             f"""
       <form method="POST" action="/select-server/" class="server-card-form">
@@ -1525,7 +1550,7 @@ def render_server_selector(redirect_to="/services/"):
             {flag_html}
             <div class="server-copy">
               <div class="server-card-title">
-                <span>{html.escape(backend["label"])}</span>
+                <span>{html.escape(display_label)}</span>
                 {badge_html}
               </div>
               <div class="server-card-location"><i class="fa-solid fa-location-dot" style="color:var(--accent-color);margin-right:6px;"></i>{html.escape(location_label)}</div>
@@ -1662,6 +1687,7 @@ def render_status():
     if selection_redirect:
         return selection_redirect
     current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
+    status_selector = render_server_selector("/status/")
     return render_page(
         "Server Status",
         render_template_string(
@@ -1669,6 +1695,7 @@ def render_status():
 <div class="container"><div class="neo-box">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-server" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Server Status</h2></div>
   {{ current_server_note|safe }}
+  <div style="margin:0 auto 1.5rem auto;max-width:760px;">{{ status_selector|safe }}</div>
   <div id="status-source-note" class="success-msg" style="display:none;"></div>
   <div class="status-subtitle"><i class="fa-solid fa-network-wired"></i> Network Traffic</div><div class="status-grid-2" id="network-grid"></div>
   <div class="status-subtitle"><i class="fa-solid fa-microchip"></i> System Resources</div><div class="status-grid-2" id="status-grid"></div>
@@ -1683,6 +1710,7 @@ updateStatus();setInterval(updateStatus,2000);
 </script>
 """,
             current_server_note=Markup(current_server_note),
+            status_selector=Markup(status_selector),
         ),
     )
 
