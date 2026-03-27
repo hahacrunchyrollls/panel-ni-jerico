@@ -14,7 +14,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flask import Flask, jsonify, has_request_context, redirect, render_template_string, request, session
+from flask import Flask, Response, jsonify, has_request_context, redirect, render_template_string, request, session
 from markupsafe import Markup
 
 
@@ -28,6 +28,8 @@ CHAT_FILE = STATE_DIR / "chat.json"
 AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 README_FILE = Path.cwd() / "README.md"
+FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
+NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_fuji.png"
 
 CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
@@ -984,7 +986,8 @@ BASE_TEMPLATE = """
 <head>
 <title>{{ title }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg">
+<link rel="icon" type="image/svg+xml" href="/site-icon.svg">
+<link rel="apple-touch-icon" href="/site-icon.svg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
@@ -1015,6 +1018,7 @@ input[type="text"]:focus,input[type="password"]:focus,input[type="search"]:focus
 form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:1.5rem;}
 .navbar{width:100%;background:rgba(255,250,249,.97);backdrop-filter:blur(10px);border-bottom:4px solid var(--card-border);box-shadow:0 8px 0 rgba(93,9,25,.18);display:flex;align-items:center;justify-content:space-between;padding:1rem max(1.5rem,5%);position:sticky;top:0;z-index:100;box-sizing:border-box;}
 .navbar-brand{display:flex;align-items:center;gap:10px;font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:clamp(1.1rem,3vw,1.6rem);letter-spacing:.06em;color:var(--primary-color);text-decoration:none;line-height:1.1;}
+.brand-icon{height:2.1em;width:2.1em;object-fit:cover;border-radius:50%;border:2px solid var(--card-border);background:#fff;box-shadow:3px 3px 0 rgba(93,9,25,.2);flex:0 0 auto;}
 .navbar-nav{display:flex;align-items:center;gap:10px;margin-left:auto;}
 .nav-link{color:var(--text-secondary);text-decoration:none;font-weight:700;padding:8px 16px;border-radius:14px;border:2px solid transparent;transition:var(--transition);font-size:.98rem;background:rgba(124,16,39,.05);}
 .nav-link:hover,.nav-link.active{color:#fff;background:var(--primary-color);border-color:var(--ink);}
@@ -1078,7 +1082,7 @@ def navbar_html():
     return f"""
 <nav class="navbar">
   <a href="/main/" class="navbar-brand">
-    <img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_fuji.png" alt="FUJI PANEL" style="height:2.1em;">
+    <img src="{NAVBAR_LOGO_URL}" alt="FUJI PANEL" class="brand-icon">
     <span>FUJI PANEL</span>
     <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.24rem .55rem;background:var(--surface);border-radius:999px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);white-space:nowrap;">IP: {visitor_ip}</span>
   </a>
@@ -1631,6 +1635,29 @@ def render_admin(success=None, error=None):
 
 
 hostname_page_html, ip_page_html = render_lookup_pages()
+
+
+@app.get("/site-icon.svg")
+def site_icon():
+    source = html.escape(FAVICON_SOURCE_URL, quote=True)
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="siteIconClip">
+      <circle cx="32" cy="32" r="30"/>
+    </clipPath>
+  </defs>
+  <rect width="64" height="64" rx="32" fill="#ffffff"/>
+  <image href="{source}" width="64" height="64" preserveAspectRatio="xMidYMid slice" clip-path="url(#siteIconClip)"/>
+  <circle cx="32" cy="32" r="30" fill="none" stroke="#5d0919" stroke-width="2"/>
+</svg>"""
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=3600"
+    return response
+
+
+@app.get("/favicon.ico")
+def favicon_legacy():
+    return redirect("/site-icon.svg", code=302)
 
 
 @app.get("/")

@@ -170,6 +170,14 @@ type app struct {
 	tlsKey  string
 	cooldownMu sync.Mutex
 	cooldowns  map[string]time.Time
+	trafficMu  sync.Mutex
+	lastTraffic networkSnapshot
+}
+
+type networkSnapshot struct {
+	at time.Time
+	rx uint64
+	tx uint64
 }
 
 type createSSHRequest struct {
@@ -315,8 +323,12 @@ func clientIP(r *http.Request) string {
 	return strings.TrimSpace(r.RemoteAddr)
 }
 
-func (a *app) createCooldownRemaining(ip string) time.Duration {
-	if ip == "" {
+func cooldownKey(protocol, ip string) string {
+	return protocol + ":" + ip
+}
+
+func (a *app) createCooldownRemaining(protocol, ip string) time.Duration {
+	if protocol == "" || ip == "" {
 		return 0
 	}
 	a.cooldownMu.Lock()
@@ -327,14 +339,14 @@ func (a *app) createCooldownRemaining(ip string) time.Duration {
 			delete(a.cooldowns, key)
 		}
 	}
-	if until, ok := a.cooldowns[ip]; ok && until.After(now) {
+	if until, ok := a.cooldowns[cooldownKey(protocol, ip)]; ok && until.After(now) {
 		return time.Until(until).Round(time.Second)
 	}
 	return 0
 }
 
-func (a *app) enforceCreateCooldown(w http.ResponseWriter, r *http.Request) bool {
-	remaining := a.createCooldownRemaining(clientIP(r))
+func (a *app) enforceCreateCooldown(w http.ResponseWriter, r *http.Request, protocol string) bool {
+	remaining := a.createCooldownRemaining(protocol, clientIP(r))
 	if remaining <= 0 {
 		return false
 	}
@@ -345,14 +357,14 @@ func (a *app) enforceCreateCooldown(w http.ResponseWriter, r *http.Request) bool
 	return true
 }
 
-func (a *app) markCreateCooldown(r *http.Request) {
+func (a *app) markCreateCooldown(r *http.Request, protocol string) {
 	ip := clientIP(r)
-	if ip == "" {
+	if protocol == "" || ip == "" {
 		return
 	}
 	a.cooldownMu.Lock()
 	defer a.cooldownMu.Unlock()
-	a.cooldowns[ip] = time.Now().Add(createCooldown)
+	a.cooldowns[cooldownKey(protocol, ip)] = time.Now().Add(createCooldown)
 }
 
 func (a *app) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -366,7 +378,7 @@ func (a *app) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"load":    loadAverage(),
 		"mem":     memoryStats(),
 		"storage": storageStats(),
-		"net":     networkStats(),
+		"net":     a.networkStats(),
 		"services": [][]any{
 			{"SSH", serviceActive("ssh.service")},
 			{"DNSTT", serviceActive("dnstt.service")},
@@ -385,7 +397,7 @@ func (a *app) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleCreateSSH(w http.ResponseWriter, r *http.Request) {
-	if a.enforceCreateCooldown(w, r) {
+	if a.enforceCreateCooldown(w, r, "ssh") {
 		return
 	}
 	var req createSSHRequest
@@ -398,12 +410,12 @@ func (a *app) handleCreateSSH(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	a.markCreateCooldown(r)
+	a.markCreateCooldown(r, "ssh")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 
 func (a *app) handleCreateVLESS(w http.ResponseWriter, r *http.Request) {
-	if a.enforceCreateCooldown(w, r) {
+	if a.enforceCreateCooldown(w, r, "vless") {
 		return
 	}
 	var req createVLESSRequest
@@ -416,12 +428,12 @@ func (a *app) handleCreateVLESS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	a.markCreateCooldown(r)
+	a.markCreateCooldown(r, "vless")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 
 func (a *app) handleCreateHysteria(w http.ResponseWriter, r *http.Request) {
-	if a.enforceCreateCooldown(w, r) {
+	if a.enforceCreateCooldown(w, r, "hysteria") {
 		return
 	}
 	var req createHysteriaRequest
@@ -434,12 +446,12 @@ func (a *app) handleCreateHysteria(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	a.markCreateCooldown(r)
+	a.markCreateCooldown(r, "hysteria")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 
 func (a *app) handleCreateOpenVPN(w http.ResponseWriter, r *http.Request) {
-	if a.enforceCreateCooldown(w, r) {
+	if a.enforceCreateCooldown(w, r, "openvpn") {
 		return
 	}
 	var req createOpenVPNRequest
@@ -452,7 +464,7 @@ func (a *app) handleCreateOpenVPN(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	a.markCreateCooldown(r)
+	a.markCreateCooldown(r, "openvpn")
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
 }
 EOF_GO_1
@@ -560,7 +572,7 @@ func storageStats() map[string]uint64 {
 	return result
 }
 
-func networkStats() map[string]uint64 {
+func (a *app) networkStats() map[string]uint64 {
 	result := map[string]uint64{"rx_bytes": 0, "tx_bytes": 0, "rx_rate": 0, "tx_rate": 0}
 	data, err := os.ReadFile("/proc/net/dev")
 	if err != nil {
@@ -583,6 +595,20 @@ func networkStats() map[string]uint64 {
 		result["rx_bytes"] += rx
 		result["tx_bytes"] += tx
 	}
+	now := time.Now()
+	a.trafficMu.Lock()
+	defer a.trafficMu.Unlock()
+	if !a.lastTraffic.at.IsZero() {
+		if delta := now.Sub(a.lastTraffic.at).Seconds(); delta > 0 {
+			if result["rx_bytes"] >= a.lastTraffic.rx {
+				result["rx_rate"] = uint64(float64(result["rx_bytes"]-a.lastTraffic.rx) / delta)
+			}
+			if result["tx_bytes"] >= a.lastTraffic.tx {
+				result["tx_rate"] = uint64(float64(result["tx_bytes"]-a.lastTraffic.tx) / delta)
+			}
+		}
+	}
+	a.lastTraffic = networkSnapshot{at: now, rx: result["rx_bytes"], tx: result["tx_bytes"]}
 	return result
 }
 
