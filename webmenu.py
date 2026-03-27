@@ -2014,9 +2014,14 @@ def render_service_result(service, result):
   <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS Non-TLS</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{nontls_link}"><sl-copy-button value="{nontls_link}"></sl-copy-button></div></div>"""
     elif service == "hysteria":
         link = html.escape(str(result.get("link", "")))
+        legacy_link = html.escape(str(result.get("legacy_link", "")))
+        obfs_value = str(result.get("obfs", "")).strip() or "Not configured"
         content += f"""
-  <div class="info-grid"><div>Obfs:</div><div>{html.escape(str(result.get("obfs", "N/A")))}</div></div>
-  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Hysteria Link</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{link}"><sl-copy-button value="{link}"></sl-copy-button></div></div>"""
+  <div class="info-grid"><div>Obfs:</div><div>{html.escape(obfs_value)}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Hysteria Link (HTTP Injector)</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{link}"><sl-copy-button value="{link}"></sl-copy-button></div></div>"""
+        if legacy_link and legacy_link != link:
+            content += f"""
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Legacy Hysteria URI</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{legacy_link}"><sl-copy-button value="{legacy_link}"></sl-copy-button></div></div>"""
     elif service == "openvpn":
         ovpn_content = json.dumps(str(result.get("ovpn_content", "")))
         filename = json.dumps(f"{result.get('username', 'openvpn')}.ovpn")
