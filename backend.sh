@@ -373,13 +373,15 @@ func (a *app) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"cpu":     cpuPercent(),
-		"load":    loadAverage(),
-		"mem":     memoryStats(),
-		"storage": storageStats(),
-		"net":     a.networkStats(),
-		"services": serviceStatusEntries(),
+		"ok":             true,
+		"cpu":            cpuPercent(),
+		"load":           loadAverage(),
+		"mem":            memoryStats(),
+		"storage":        storageStats(),
+		"net":            a.networkStats(),
+		"services":       serviceStatusEntries(),
+		"online_users":   onlineUsersCount(),
+		"total_accounts": totalAccountsCount(),
 	})
 }
 
@@ -680,6 +682,120 @@ func serviceStatusEntries() [][]any {
 		{"MULTIPLEXER", serviceRunning(units, "multiplexer.service", "multiplexer")},
 		{"OPENVPN", serviceRunning(units, "openvpn.service", "openvpn-server@server.service", "openvpn@server.service", "openvpn-server", "openvpn")},
 	}
+}
+
+func onlineUsersCount() uint64 {
+	out, err := exec.Command("who").Output()
+	if err != nil {
+		return 0
+	}
+	users := map[string]struct{}{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		users[fields[0]] = struct{}{}
+	}
+	return uint64(len(users))
+}
+
+func countSSHAccounts() uint64 {
+	entries, err := os.ReadDir("/var/lib/regular_users")
+	if err != nil {
+		return 0
+	}
+	var total uint64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.TrimSpace(entry.Name()) == "" {
+			continue
+		}
+		total++
+	}
+	return total
+}
+
+func countVLESSAccounts() uint64 {
+	raw, err := os.ReadFile("/etc/xray/config.json")
+	if err != nil {
+		return 0
+	}
+	var config map[string]any
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return 0
+	}
+	inbounds, _ := config["inbounds"].([]any)
+	users := map[string]struct{}{}
+	for _, item := range inbounds {
+		inbound, ok := item.(map[string]any)
+		if !ok || fmt.Sprint(inbound["protocol"]) != "vless" {
+			continue
+		}
+		settings, _ := inbound["settings"].(map[string]any)
+		clients, _ := settings["clients"].([]any)
+		for _, clientItem := range clients {
+			clientMap, ok := clientItem.(map[string]any)
+			if !ok {
+				continue
+			}
+			email := strings.TrimSpace(fmt.Sprint(clientMap["email"]))
+			username := strings.TrimSpace(strings.SplitN(email, "|", 2)[0])
+			if username == "" {
+				username = strings.TrimSpace(fmt.Sprint(clientMap["id"]))
+			}
+			if username == "" {
+				continue
+			}
+			users[username] = struct{}{}
+		}
+	}
+	return uint64(len(users))
+}
+
+func countHysteriaAccounts() uint64 {
+	now := time.Now().Unix()
+	out, err := exec.Command(
+		"sqlite3",
+		"-noheader",
+		"-batch",
+		"/etc/hysteria/udpusers.db",
+		fmt.Sprintf("SELECT COUNT(DISTINCT username) FROM users WHERE username IS NOT NULL AND username != '' AND (expiry IS NULL OR expiry > %d);", now),
+	).Output()
+	if err != nil {
+		return 0
+	}
+	count, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+func countOpenVPNAccounts() uint64 {
+	raw, err := os.ReadFile("/etc/openvpn/users.txt")
+	if err != nil {
+		return 0
+	}
+	users := map[string]struct{}{}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		username := strings.TrimSpace(strings.SplitN(line, ":", 2)[0])
+		if username == "" {
+			continue
+		}
+		users[username] = struct{}{}
+	}
+	return uint64(len(users))
+}
+
+func totalAccountsCount() uint64 {
+	return countSSHAccounts() + countVLESSAccounts() + countHysteriaAccounts() + countOpenVPNAccounts()
 }
 
 func validateUsername(raw string) (string, error) {

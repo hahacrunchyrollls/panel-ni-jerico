@@ -37,6 +37,7 @@ CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 MAX_CHAT_MESSAGES = 200
 CREATE_COOLDOWN_SECONDS = 600
+SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
@@ -277,6 +278,13 @@ def default_backend_id():
 
 
 def selected_backend_id():
+    selected = explicitly_selected_backend_id()
+    if selected:
+        return selected
+    return default_backend_id()
+
+
+def explicitly_selected_backend_id():
     options = load_backends()
     if not options:
         return None
@@ -285,7 +293,25 @@ def selected_backend_id():
         selected = session.get("selected_backend_id")
         if selected in valid_ids:
             return selected
-    return default_backend_id()
+    return None
+
+
+def has_explicit_backend_selection():
+    return explicitly_selected_backend_id() is not None
+
+
+def explicitly_selected_backend():
+    current_id = explicitly_selected_backend_id()
+    for backend in load_backends():
+        if backend["id"] == current_id:
+            return backend
+    return None
+
+
+def require_backend_selection():
+    if has_explicit_backend_selection():
+        return None
+    return redirect("/main/?error=" + urllib.parse.quote("Please choose a server first."), code=303)
 
 
 def selected_backend():
@@ -345,8 +371,7 @@ def backend_location(backend=None):
         return {"country": "Unknown", "countryCode": "", "city": ""}
 
 
-def backend_request(path, payload=None, method="POST"):
-    backend = selected_backend()
+def backend_request_for(backend, path, payload=None, method="POST"):
     if not backend:
         raise RuntimeError(
             "No backend is configured. Set SERVER_BACKENDS_JSON, numbered SERVER_API_URL_n / SERVER_API_TOKEN_n pairs, or SERVER_API_URL / SERVER_API_TOKEN."
@@ -373,6 +398,10 @@ def backend_request(path, payload=None, method="POST"):
         except json.JSONDecodeError:
             raise RuntimeError(body or f"HTTP {exc.code}") from exc
     return json.loads(raw) if raw else {}
+
+
+def backend_request(path, payload=None, method="POST"):
+    return backend_request_for(selected_backend(), path, payload=payload, method=method)
 
 
 def get_daily_account_limit():
@@ -650,7 +679,7 @@ def backend_error_message(exc):
 
 
 def guess_image_mime(url):
-    lower = (url or "").lower()
+    lower = urllib.parse.urlsplit(url or "").path.lower()
     if lower.endswith(".png"):
         return "image/png"
     if lower.endswith(".jpg") or lower.endswith(".jpeg"):
@@ -659,20 +688,72 @@ def guess_image_mime(url):
         return "image/webp"
     if lower.endswith(".gif"):
         return "image/gif"
+    if lower.endswith(".svg"):
+        return "image/svg+xml"
     return "application/octet-stream"
+
+
+def detect_image_mime(payload):
+    blob = payload or b""
+    if blob.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if blob.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if blob[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if blob.startswith(b"RIFF") and blob[8:12] == b"WEBP":
+        return "image/webp"
+    if b"<svg" in blob[:512].lower():
+        return "image/svg+xml"
+    return ""
+
+
+def decode_data_image_uri(source_url):
+    if not (source_url or "").startswith("data:image/"):
+        return b"", ""
+    try:
+        header, encoded = source_url.split(",", 1)
+        mime = header[5:].split(";", 1)[0].strip() or "application/octet-stream"
+        if ";base64" in header:
+            payload = base64.b64decode(encoded)
+        else:
+            payload = urllib.parse.unquote_to_bytes(encoded)
+        return payload, mime
+    except Exception:
+        return b"", ""
+
+
+@lru_cache(maxsize=8)
+def image_source_asset(source_url):
+    source_url = (source_url or "").strip()
+    if not source_url:
+        return b"", ""
+    payload, mime = decode_data_image_uri(source_url)
+    if payload:
+        if mime not in SUPPORTED_IMAGE_MIMES:
+            mime = detect_image_mime(payload) or guess_image_mime(source_url)
+        return payload, mime
+    try:
+        req = urllib.request.Request(source_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = response.read()
+            mime = response.headers.get_content_type() or ""
+        if mime not in SUPPORTED_IMAGE_MIMES:
+            mime = guess_image_mime(source_url)
+        if mime not in SUPPORTED_IMAGE_MIMES:
+            mime = detect_image_mime(payload)
+        return payload, mime if mime in SUPPORTED_IMAGE_MIMES else "application/octet-stream"
+    except Exception:
+        return b"", ""
 
 
 @lru_cache(maxsize=1)
 def favicon_data_uri():
-    try:
-        req = urllib.request.Request(FAVICON_SOURCE_URL, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            payload = response.read()
-            mime = response.headers.get_content_type() or guess_image_mime(FAVICON_SOURCE_URL)
-        encoded = base64.b64encode(payload).decode("ascii")
-        return f"data:{mime};base64,{encoded}"
-    except Exception:
+    payload, mime = image_source_asset(FAVICON_SOURCE_URL)
+    if not payload or not mime:
         return ""
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
 
 
 def strip_ansi(text):
@@ -1126,6 +1207,35 @@ def normalize_backend_status_payload(payload):
     return None
 
 
+def extract_backend_status_counters(payload):
+    for candidate in _status_payload_candidates(payload):
+        online_users = _pick_first(
+            candidate,
+            "online_users",
+            "onlineUsers",
+            "active_users",
+            "activeUsers",
+            "users_online",
+            "usersOnline",
+        )
+        total_accounts = _pick_first(
+            candidate,
+            "total_accounts",
+            "totalAccounts",
+            "accounts_created",
+            "accountsCreated",
+            "created_accounts",
+            "createdAccounts",
+        )
+        if online_users in (None, "") and total_accounts in (None, ""):
+            continue
+        return {
+            "online_users": _coerce_non_negative_int(online_users),
+            "total_accounts": _coerce_non_negative_int(total_accounts),
+        }
+    return {"online_users": 0, "total_accounts": 0}
+
+
 def get_status_payload():
     backend = selected_backend() if backend_configured() else None
     backend_error = ""
@@ -1235,8 +1345,9 @@ button.server-card-button.is-active .server-badge{background:#fff;color:var(--pr
 .server-current-dot{height:10px;width:10px;border-radius:50%;background:var(--success);box-shadow:0 0 0 6px rgba(143,23,48,.12);}
 .server-current-name{color:var(--primary-color);font-weight:800;font-family:'Bangers','Comic Neue',cursive;letter-spacing:.04em;}
 .server-current-meta{color:var(--text-muted);}
-.global-ad-wrap{width:min(100% - 2rem,960px);margin:1.25rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
-.global-ad-shell{background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:18px;box-shadow:4px 4px 0 rgba(93,9,25,.16);padding:12px;overflow:hidden;}
+.global-ad-wrap{width:min(100% - 2rem,960px);margin:1rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
+.global-ad-shell{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;overflow:visible;}
+ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 .public-chat{margin-top:1.5rem;display:flex;flex-direction:column;gap:8px;align-items:center}.chat-box{width:100%;max-width:400px;background:linear-gradient(180deg,#ffffff 0%,#fff5f7 100%);border-radius:16px;padding:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);max-height:320px;overflow:auto;font-size:.98rem}.chat-message{padding:8px;border-radius:12px;margin-bottom:8px;background:rgba(124,16,39,.05);border:2px dashed rgba(124,16,39,.24);display:block}.chat-meta{display:flex;align-items:center;gap:8px}.chat-name{font-weight:700;color:var(--primary-color)}.chat-time{color:var(--text-muted);font-size:.8rem;margin-left:auto}.chat-text{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.chat-form{width:100%;max-width:400px;display:flex;gap:8px;align-items:center;flex-direction:column}.chat-form input[type="text"]{width:100%}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
@@ -1289,13 +1400,12 @@ def navbar_html():
     return f"""
 <nav class="navbar">
   <a href="/main/" class="navbar-brand">
-    <img src="{NAVBAR_LOGO_URL}" alt="FUJI PANEL" class="brand-icon">
+    <img src="/site-logo" alt="FUJI PANEL" class="brand-icon">
     <span>FUJI PANEL</span>
     <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.24rem .55rem;background:var(--surface);border-radius:999px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);white-space:nowrap;">IP: {visitor_ip}</span>
   </a>
   <div class="navbar-nav">
     <a href="/main/" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
-    <a href="/services/" class="nav-link"><i class="fa-solid fa-layer-group"></i> Service</a>
     <a href="/status/" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>
     <a href="/hostname-to-ip/" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
@@ -1305,7 +1415,6 @@ def navbar_html():
   <button class="burger-btn" id="navbar-burger" type="button"><i class="fa-solid fa-bars"></i></button>
   <div class="mobile-menu" id="mobile-menu">
     <a href="/main/"><i class="fa-solid fa-house"></i> Home</a>
-    <a href="/services/"><i class="fa-solid fa-layer-group"></i> Service</a>
     <a href="/status/"><i class="fa-solid fa-server"></i> Status</a>
     <a href="/hostname-to-ip/"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
@@ -1346,7 +1455,7 @@ def build_service_cards():
 
 
 def render_selected_server_note(change_href="/main/", include_change=True, margin_style="margin:0 auto 1.35rem auto;"):
-    current_backend = selected_backend()
+    current_backend = explicitly_selected_backend()
     if not current_backend:
         return ""
     backend_geo = backend_location(current_backend)
@@ -1373,7 +1482,7 @@ def render_server_selector(redirect_to="/services/"):
     backends = load_backends()
     if not backends:
         return ""
-    current_id = selected_backend_id()
+    current_id = explicitly_selected_backend_id()
     server_cards = []
     for backend in backends:
         backend_geo = backend_location(backend)
@@ -1433,7 +1542,7 @@ def render_home():
     selector_html = render_server_selector("/services/")
     current_server_note = render_selected_server_note(include_change=False)
     continue_html = ""
-    if enabled and selected_backend():
+    if enabled and has_explicit_backend_selection():
         continue_html = """
     <div style="margin:1.5rem auto 0 auto;max-width:420px;">
       <a href="/services/" style="text-decoration:none;display:block;">
@@ -1503,6 +1612,9 @@ fetchChat();updateMainStats();setInterval(fetchChat,3000);setInterval(updateMain
 def render_services():
     if not backend_configured():
         return render_unavailable("Service")
+    selection_redirect = require_backend_selection()
+    if selection_redirect:
+        return selection_redirect
     current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
     cards = build_service_cards()
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
@@ -1588,6 +1700,9 @@ def service_icon(service):
 def render_service_form(service, error=None, values=None):
     if not backend_configured():
         return render_unavailable(service_label(service))
+    selection_redirect = require_backend_selection()
+    if selection_redirect:
+        return selection_redirect
     values = values or {}
     label = service_label(service)
     icon = service_icon(service)
@@ -1909,6 +2024,18 @@ def site_icon():
     return response
 
 
+@app.get("/site-logo")
+def site_logo():
+    payload, mime = image_source_asset(NAVBAR_LOGO_URL)
+    if payload and mime in SUPPORTED_IMAGE_MIMES:
+        response = Response(payload, mimetype=mime)
+        response.headers["Cache-Control"] = "public, max-age=3600"
+        return response
+    if (NAVBAR_LOGO_URL or "").strip():
+        return redirect(NAVBAR_LOGO_URL, code=302)
+    return redirect("/site-icon.svg", code=302)
+
+
 @app.get("/favicon.ico")
 def favicon_legacy():
     return redirect("/site-icon.svg", code=302)
@@ -1942,13 +2069,18 @@ def status_full():
 def main_stats():
     visits = load_visits()
     online_users = 0
+    remote_total_accounts = 0
     total_accounts = max(int(visits.get("total_accounts", 0) or 0), get_total_daily_created_count())
     if backend_configured():
-        try:
-            data = backend_request("/status", payload=None, method="GET")
-            online_users = int(data.get("online_users", 0) or 0)
-        except Exception:
-            pass
+        for backend in load_backends():
+            try:
+                data = backend_request_for(backend, "/status", payload=None, method="GET")
+                counters = extract_backend_status_counters(data)
+                online_users += counters["online_users"]
+                remote_total_accounts += counters["total_accounts"]
+            except Exception:
+                continue
+    total_accounts = max(total_accounts, remote_total_accounts)
     response = jsonify({"online_users": online_users, "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
@@ -2046,6 +2178,9 @@ def submit_service_request(service):
     values = {key: request.form.get(key, "") for key in ("username", "password", "bypass_option")}
     if not backend_configured():
         return render_unavailable(service_label(service))
+    selection_redirect = require_backend_selection()
+    if selection_redirect:
+        return selection_redirect
     client_ip = get_request_ip()
     cooldown_remaining = get_create_cooldown_remaining(client_ip, service)
     if cooldown_remaining > 0:
