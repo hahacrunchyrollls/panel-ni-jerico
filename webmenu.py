@@ -3027,11 +3027,30 @@ def render_service_result(service, result):
         filename = json.dumps(f"{result.get('username', 'wireguard')}.conf")
         endpoint = html.escape(str(result.get("endpoint", domain)))
         client_ip = html.escape(str(result.get("client_ip", "")).strip() or "N/A")
+        qr_base64 = str(result.get("qr_png_base64", "") or "").strip()
+        qr_data_uri = f"data:image/png;base64,{qr_base64}" if qr_base64 else ""
+        qr_data_uri_attr = html.escape(qr_data_uri, quote=True)
+        qr_download_name = json.dumps(f"{result.get('username', 'wireguard')}.png")
+        qr_html = ""
+        if qr_data_uri:
+            qr_html = f"""
+  <div class="link-box" style="text-align:center;">
+    <div class="link-title tls"><img src="{icon}" style="height:1.05em;"> WireGuard QR Code</div>
+    <img src="{qr_data_uri_attr}" alt="WireGuard QR Code" style="width:min(100%,320px);height:auto;margin:1rem auto 0 auto;display:block;border-radius:18px;border:3px solid var(--card-border);background:#fff;padding:12px;box-shadow:4px 4px 0 rgba(93,9,25,.16);">
+    <button onclick="downloadWireGuardQr()" style="width:100%;margin-top:1rem;"><i class="fa-solid fa-qrcode"></i> Download QR Code</button>
+  </div>"""
+        else:
+            qr_html = f"""
+  <div class="link-box">
+    <div class="link-title tls"><img src="{icon}" style="height:1.05em;"> WireGuard QR Code</div>
+    <div style="color:var(--text-secondary);margin-top:.85rem;">QR code image is not available right now. The server may be missing <code>qrencode</code>, but the WireGuard config file is ready below.</div>
+  </div>"""
         content += f"""
   <div class="info-grid">
     <div>Endpoint:</div><div>{endpoint}</div>
     <div>Client IP:</div><div>{client_ip}</div>
   </div>
+  {qr_html}
   <div class="link-box">
     <div class="link-title tls"><img src="{icon}" style="height:1.05em;"> WireGuard Config</div>
     <textarea readonly style="width:100%;min-height:220px;padding:12px;border-radius:14px;border:3px solid var(--card-border);background:rgba(255,255,255,.9);color:var(--text-primary);font-family:ui-monospace,'Cascadia Code','SF Mono',monospace;resize:vertical;">{html.escape(config_text)}</textarea>
@@ -3049,6 +3068,16 @@ def render_service_result(service, result):
     anchor.click();
     document.body.removeChild(anchor);
     setTimeout(function() {{ URL.revokeObjectURL(url); }}, 1000);
+  }}
+  function downloadWireGuardQr() {{
+    const source = {json.dumps(qr_data_uri)};
+    if (!source) return;
+    const anchor = document.createElement('a');
+    anchor.href = source;
+    anchor.download = {qr_download_name};
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
   }}
   </script>"""
     elif service == "openvpn":
