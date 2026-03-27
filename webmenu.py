@@ -728,16 +728,71 @@ def probe_backend_health(backend):
         return payload
 
 
+def probe_backend_health_metadata(backend):
+    host = backend_host(backend)
+    port = backend_port(backend)
+    health_url = backend_health_url(backend)
+    payload = {
+        "backend_id": str((backend or {}).get("id", "")).strip(),
+        "host": host,
+        "port": port,
+        "health_url": health_url,
+        "alive": False,
+        "latency_ms": None,
+        "text": "Dead",
+        "source": "panel",
+    }
+    if not host:
+        return payload
+
+    start = time.perf_counter()
+    try:
+        request_obj = urllib.request.Request(
+            health_url,
+            headers={"User-Agent": "FUJI-VPN server health"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request_obj, timeout=SERVER_HEALTH_TIMEOUT) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+        if body:
+            try:
+                data = json.loads(body)
+                if isinstance(data, dict) and data.get("ok") is False:
+                    raise RuntimeError(data.get("error") or "Health check failed")
+            except json.JSONDecodeError:
+                pass
+        payload["alive"] = True
+        payload["latency_ms"] = max(1, int((time.perf_counter() - start) * 1000))
+        payload["text"] = "Alive (panel)"
+        return payload
+    except Exception:
+        pass
+
+    if not port:
+        return payload
+
+    start = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=SERVER_HEALTH_TIMEOUT):
+            pass
+        payload["alive"] = True
+        payload["latency_ms"] = max(1, int((time.perf_counter() - start) * 1000))
+        payload["text"] = "Alive (panel)"
+        return payload
+    except Exception:
+        return payload
+
+
 def get_backend_health(backend, force=False):
     backend_id = str((backend or {}).get("id", "")).strip()
     if not backend_id:
-        return probe_backend_health(backend)
+        return probe_backend_health_metadata(backend)
     now = time.time()
     with server_health_lock:
         cached = server_health_cache.get(backend_id)
         if cached and not force and now - cached.get("checked_at", 0) < SERVER_HEALTH_CACHE_TTL:
             return dict(cached.get("payload", {}))
-    payload = probe_backend_health(backend)
+    payload = probe_backend_health_metadata(backend)
     with server_health_lock:
         server_health_cache[backend_id] = {"checked_at": time.time(), "payload": dict(payload)}
     return payload
@@ -759,9 +814,11 @@ def get_all_backend_health_statuses(force=False):
                     "backend_id": backend_id,
                     "host": backend_host(next((item for item in backends if item["id"] == backend_id), None)),
                     "port": backend_port(next((item for item in backends if item["id"] == backend_id), None)),
+                    "health_url": backend_health_url(next((item for item in backends if item["id"] == backend_id), None)),
                     "alive": False,
                     "latency_ms": None,
                     "text": "Dead",
+                    "source": "panel",
                 }
     return statuses
 
@@ -2196,7 +2253,9 @@ function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).th
 function sendPublicChat(e){e.preventDefault();let name=document.getElementById('chat-name').value||'';const message=document.getElementById('chat-message').value||'';name=name.replace(/[^A-Za-z]/g,'').slice(0,10);if(!message.trim())return;const body=new URLSearchParams();body.append('name',name);body.append('message',message);fetch('/chat/send',{method:'POST',body}).then(()=>{document.getElementById('chat-message').value='';fetchChat();}).catch(()=>{});}
 function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;}).catch(()=>{});}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=data.text||'Alive';return;}node.classList.add('is-dead');if(text)text.textContent=(data&&data.text)||'Dead';}
-function updateServerHealth(){fetch('/main/server-health?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const statuses=(data&&data.statuses)||{};document.querySelectorAll('[data-server-health]').forEach(node=>{const backendId=node.getAttribute('data-backend-id')||'';applyServerHealth(node,statuses[backendId]||null);});}).catch(()=>{});}
+async function measureBrowserPing(status){if(!status||!status.health_url)return null;const healthUrl=String(status.health_url||'').trim();if(!healthUrl)return null;if(window.location.protocol==='https:'&&/^http:\/\//i.test(healthUrl))return null;const controller=typeof AbortController==='function'?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),4000):null;const start=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();try{const target=healthUrl+(healthUrl.includes('?')?'&':'?')+'_ping='+Date.now();const response=await fetch(target,{method:'GET',mode:'cors',cache:'no-store',credentials:'omit',signal:controller?controller.signal:void 0});if(!response.ok)throw new Error('HTTP '+response.status);await response.text();const end=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();const latency=Math.max(1,Math.round(end-start));return {alive:true,latency_ms:latency,text:'Alive - '+latency+' ms',source:'client'};}catch(_error){return null;}finally{if(timer)clearTimeout(timer);}}
+let serverHealthUpdating=false;
+async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const fallback=statuses[backendId]||null;const browserStatus=await measureBrowserPing(fallback);applyServerHealth(node,browserStatus||fallback);}));}catch(_error){}finally{serverHealthUpdating=false;}}
 fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,5000);setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
