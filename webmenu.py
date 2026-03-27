@@ -1431,6 +1431,8 @@ document.addEventListener('DOMContentLoaded',function(){const p=window.location.
 def navbar_html():
     announcement_link = '<a href="/readme/" class="nav-link"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
     mobile_announcement = '<a href="/readme/"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
+    status_link = '<a href="/status/" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
+    mobile_status_link = '<a href="/status/"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
     visitor_ip = html.escape(get_request_ip())
     return f"""
 <nav class="navbar">
@@ -1441,7 +1443,7 @@ def navbar_html():
   </a>
   <div class="navbar-nav">
     <a href="/main/" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
-    <a href="/status/" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>
+    {status_link}
     <a href="/hostname-to-ip/" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {announcement_link}
@@ -1450,7 +1452,7 @@ def navbar_html():
   <button class="burger-btn" id="navbar-burger" type="button"><i class="fa-solid fa-bars"></i></button>
   <div class="mobile-menu" id="mobile-menu">
     <a href="/main/"><i class="fa-solid fa-house"></i> Home</a>
-    <a href="/status/"><i class="fa-solid fa-server"></i> Status</a>
+    {mobile_status_link}
     <a href="/hostname-to-ip/"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {mobile_announcement}
