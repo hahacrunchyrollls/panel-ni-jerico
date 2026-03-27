@@ -2417,23 +2417,6 @@ form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bot
 .stats-container{display:flex;justify-content:center;gap:1rem;margin:1.5rem 0;flex-wrap:wrap;}
 .stat-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:.8rem 1.5rem;display:flex;align-items:center;gap:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);flex:1;min-width:200px;max-width:300px;}
 .stat-icon{color:var(--primary-color);font-size:1.2rem}.stat-value{font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1.3rem;letter-spacing:.04em}.stat-label{font-size:.9rem;color:var(--text-secondary);font-weight:700}
-.online-summary-box{max-width:980px;margin:0 auto 2rem auto}
-.online-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:1rem}
-.online-summary-note{color:var(--text-secondary);font-size:.96rem;font-weight:700;max-width:680px;margin-top:.35rem}
-.online-breakdown{display:flex;gap:.75rem;flex-wrap:wrap}
-.online-breakdown-pill{display:flex;flex-direction:column;gap:.15rem;min-width:110px;padding:.75rem .95rem;border-radius:18px;border:3px solid var(--card-border);background:linear-gradient(180deg,#ffffff 0%,#fff3f6 100%);box-shadow:4px 4px 0 rgba(93,9,25,.14)}
-.online-breakdown-pill span{font-size:.78rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
-.online-breakdown-pill strong{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;letter-spacing:.05em;color:var(--primary-color)}
-.online-extra-note,.online-users-empty{padding:.9rem 1rem;border-radius:16px;border:2px dashed rgba(93,9,25,.22);background:rgba(124,16,39,.05);color:var(--text-secondary);font-weight:700;margin-bottom:1rem}
-.online-users-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.online-user-card{background:linear-gradient(180deg,#ffffff 0%,#fff5f7 100%);border-radius:18px;padding:1rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.14)}
-.online-user-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:.75rem}
-.online-service-pill{display:inline-flex;align-items:center;padding:.38rem .72rem;border-radius:999px;font-size:.74rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;border:2px solid rgba(93,9,25,.16)}
-.online-service-pill.service-ssh{background:rgba(34,197,94,.12);color:#166534}
-.online-service-pill.service-openvpn{background:rgba(6,182,212,.12);color:#155e75}
-.online-user-name{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;letter-spacing:.05em;color:var(--primary-color);word-break:break-word}
-.online-user-meta{display:flex;flex-direction:column;gap:.35rem;margin-top:.7rem;color:var(--text-secondary);font-size:.9rem;font-weight:700}
-.online-user-meta span{display:flex;align-items:center;gap:8px;word-break:break-word}
 .server-selector{max-width:760px;margin:0 auto 1.35rem auto;padding:1.1rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
 .server-selector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1rem;text-align:left;}
 .server-selector-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--primary-color);font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1rem;letter-spacing:.08em;text-transform:uppercase;}
@@ -2475,7 +2458,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.online-users-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.online-summary-head{flex-direction:column}.online-breakdown{width:100%}.online-breakdown-pill{flex:1}}
+@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}}
 </style>
 </head>
 <body>
@@ -2671,45 +2654,12 @@ def render_server_selector(redirect_to="/services", show_header=True):
       <div class="server-selector-grid">{''.join(server_cards)}</div>
     </div>"""
 
-
-def render_online_entries_markup(entries):
-    cards = []
-    for entry in entries or []:
-        service = str(entry.get("service") or "").strip().lower()
-        service_label = html.escape(str(entry.get("service_label") or _online_service_label(service)))
-        service_class = "service-openvpn" if service == "openvpn" else "service-ssh"
-        username = html.escape(str(entry.get("username") or "Connected client"))
-        backend_label = html.escape(str(entry.get("backend_label") or entry.get("backend_host") or "Unknown server"))
-        remote_addr = html.escape(str(entry.get("remote_addr") or "").strip())
-        tty = html.escape(str(entry.get("tty") or "").strip())
-        meta_parts = [f'<span><i class="fa-solid fa-server"></i> {backend_label}</span>']
-        if remote_addr:
-            meta_parts.append(f'<span><i class="fa-solid fa-network-wired"></i> {remote_addr}</span>')
-        if tty:
-            meta_parts.append(f'<span><i class="fa-solid fa-terminal"></i> {tty}</span>')
-        cards.append(
-            f"""
-      <div class="online-user-card">
-        <div class="online-user-top">
-          <span class="online-service-pill {service_class}">{service_label}</span>
-        </div>
-        <div class="online-user-name">{username}</div>
-        <div class="online-user-meta">{''.join(meta_parts)}</div>
-      </div>"""
-        )
-    return "".join(cards)
-
-
 def render_home():
     visits = bump_visit_count()
     enabled = backend_configured()
     counters = load_backend_summary_counters() if enabled else _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
-    online_entries = _sort_online_entries((counters or {}).get("online_entries", []))
     online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
-    ssh_online_users = max(int((counters or {}).get("ssh_online_users", 0) or 0), 0)
-    openvpn_online_users = max(int((counters or {}).get("openvpn_online_users", 0) or 0), 0)
-    unlisted_online_users = max(online_users - len(online_entries), 0)
     selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
     continue_html = ""
@@ -2753,32 +2703,9 @@ def render_home():
   <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="online-users">{{ online_users }}</div><div class="stat-label">Online Users</div></div></div>
   <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
 </div>
-<div class="container">
-  <div class="link-box online-summary-box">
-    <div class="online-summary-head">
-      <div>
-        <div class="server-selector-kicker"><i class="fa-solid fa-signal"></i> Live Users Across All Servers</div>
-        <div class="online-summary-note">SSH and OpenVPN connections are collected from every connected backend and refreshed automatically.</div>
-      </div>
-      <div class="online-breakdown">
-        <div class="online-breakdown-pill"><span>SSH</span><strong id="ssh-online-users">{{ ssh_online_users }}</strong></div>
-        <div class="online-breakdown-pill"><span>OpenVPN</span><strong id="openvpn-online-users">{{ openvpn_online_users }}</strong></div>
-      </div>
-    </div>
-    <div class="online-extra-note" id="online-extra-note" {% if not unlisted_online_users %}style="display:none;"{% endif %}>
-      {{ unlisted_online_users }} more connection{% if unlisted_online_users != 1 %}s{% endif %} were counted but did not expose a username.
-    </div>
-    <div class="online-users-empty" id="online-users-empty" {% if online_entries %}style="display:none;"{% endif %}>
-      No SSH or OpenVPN users are online right now.
-    </div>
-    <div class="online-users-grid" id="online-users-grid">{{ online_entries_html|safe }}</div>
-  </div>
-</div>
 <script>
-const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0,ssh:parseInt((document.getElementById('ssh-online-users')||{}).textContent||'0',10)||0,openvpn:parseInt((document.getElementById('openvpn-online-users')||{}).textContent||'0',10)||0,onlineEntries:{{ online_entries_json|safe }}};
-function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-function renderOnlineUsers(entries,totalOnline){const grid=document.getElementById('online-users-grid');const empty=document.getElementById('online-users-empty');const extra=document.getElementById('online-extra-note');const list=Array.isArray(entries)?entries:[];if(grid){grid.innerHTML=list.map(entry=>{const service=String(entry&&entry.service||'ssh').toLowerCase();const serviceLabel=escapeHtml(entry&&entry.service_label|| (service==='openvpn'?'OPENVPN':'SSH'));const serviceClass=service==='openvpn'?'service-openvpn':'service-ssh';const username=escapeHtml(entry&&entry.username|| (service==='openvpn'?'Connected client':'Connected session'));const backend=escapeHtml(entry&& (entry.backend_label||entry.backend_host)||'Unknown server');const remote=escapeHtml(entry&&entry.remote_addr||'');const tty=escapeHtml(entry&&entry.tty||'');let meta=`<span><i class="fa-solid fa-server"></i> ${backend}</span>`;if(remote)meta+=`<span><i class="fa-solid fa-network-wired"></i> ${remote}</span>`;if(tty)meta+=`<span><i class="fa-solid fa-terminal"></i> ${tty}</span>`;return `<div class="online-user-card"><div class="online-user-top"><span class="online-service-pill ${serviceClass}">${serviceLabel}</span></div><div class="online-user-name">${username}</div><div class="online-user-meta">${meta}</div></div>`;}).join('');}if(empty)empty.style.display=list.length?'none':'block';const total=Number.isFinite(Number(totalOnline))?Math.max(0,Number(totalOnline)):list.length;const hidden=Math.max(total-list.length,0);if(extra){extra.style.display=hidden?'block':'none';extra.textContent=hidden===1?'1 more connection was counted but did not expose a username.':`${hidden} more connections were counted but did not expose a username.`;}}
-function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);const ssh=Number(data&&data.ssh_online_users);const openvpn=Number(data&&data.openvpn_online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);if(Number.isFinite(ssh))mainStatsState.ssh=Math.max(0, ssh);if(Number.isFinite(openvpn))mainStatsState.openvpn=Math.max(0, openvpn);if(Array.isArray(data&&data.online_entries))mainStatsState.onlineEntries=data.online_entries;document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('ssh-online-users').textContent=mainStatsState.ssh;document.getElementById('openvpn-online-users').textContent=mainStatsState.openvpn;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;renderOnlineUsers(mainStatsState.onlineEntries,mainStatsState.online);}).catch(()=>{});}
+const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
+function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;}).catch(()=>{});}
 function formatServerHealthText(data){if(!data)return'Ping unavailable';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Ping unavailable';}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=formatServerHealthText(data);return;}node.classList.add('is-dead');if(text)text.textContent=formatServerHealthText(data);}
 function appendPingCandidate(list,url,mode){const value=String(url||'').trim();if(!value)return;if(window.location.protocol==='https:'&&/^http:\/\//i.test(value))return;if(list.some(item=>item.url===value))return;list.push({url:value,mode:mode||'cors'});}
@@ -2789,17 +2716,12 @@ async function measureBrowserPing(status){const candidates=buildPingCandidates(s
 function mergeServerHealth(browserStatus,fallback){if(browserStatus&&browserStatus.alive)return browserStatus;if(fallback&&fallback.alive)return {alive:true,text:'Alive',source:'panel'};return browserStatus||fallback||{alive:false,text:'Dead'};}
 let serverHealthUpdating=false;
 async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,mergeServerHealth(browserStatus,status));}));}catch(_error){}finally{serverHealthUpdating=false;}}
-renderOnlineUsers(mainStatsState.onlineEntries,mainStatsState.online);updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
+updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
             visits=visits["total_visits"],
             online_users=online_users,
-            ssh_online_users=ssh_online_users,
-            openvpn_online_users=openvpn_online_users,
             total_accounts=total_accounts,
-            online_entries_html=Markup(render_online_entries_markup(online_entries)),
-            online_entries_json=json.dumps(online_entries),
-            unlisted_online_users=unlisted_online_users,
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
             continue_html=Markup(continue_html),
