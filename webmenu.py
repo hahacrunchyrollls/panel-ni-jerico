@@ -12,6 +12,7 @@ import time
 import urllib.parse
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -38,6 +39,8 @@ DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 MAX_CHAT_MESSAGES = 200
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
+SERVER_HEALTH_CACHE_TTL = 15
+SERVER_HEALTH_TIMEOUT = 2
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
@@ -64,7 +67,9 @@ STATUS_SERVICE_ORDER = [
 state_lock = threading.Lock()
 chat_lock = threading.Lock()
 traffic_lock = threading.Lock()
+server_health_lock = threading.Lock()
 last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
+server_health_cache = {}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
@@ -350,6 +355,124 @@ def backend_host(backend=None):
             if parsed.hostname:
                 return parsed.hostname
     return current_host()
+
+
+def backend_port(backend=None):
+    backend = backend or selected_backend()
+    if backend:
+        api_url = backend.get("api_url", "")
+        if api_url:
+            parsed = urllib.parse.urlsplit(api_url)
+            if parsed.port:
+                return parsed.port
+            if parsed.scheme == "https":
+                return 443
+            if parsed.scheme == "http":
+                return 80
+    return 0
+
+
+def backend_health_url(backend=None):
+    backend = backend or selected_backend()
+    api_url = str((backend or {}).get("api_url", "")).strip()
+    if not api_url:
+        return ""
+    parsed = urllib.parse.urlsplit(api_url)
+    health_path = (parsed.path or "").rstrip("/") + "/healthz"
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, health_path, "", ""))
+
+
+def probe_backend_health(backend):
+    host = backend_host(backend)
+    port = backend_port(backend)
+    payload = {
+        "backend_id": str((backend or {}).get("id", "")).strip(),
+        "host": host,
+        "port": port,
+        "alive": False,
+        "latency_ms": None,
+        "text": "Dead",
+    }
+    if not host:
+        return payload
+
+    health_url = backend_health_url(backend)
+    start = time.perf_counter()
+    try:
+        request_obj = urllib.request.Request(
+            health_url,
+            headers={"User-Agent": "FUJI-VPN server health"},
+            method="GET",
+        )
+        with urllib.request.urlopen(request_obj, timeout=SERVER_HEALTH_TIMEOUT) as response:
+            body = response.read().decode("utf-8", errors="ignore")
+        if body:
+            try:
+                data = json.loads(body)
+                if isinstance(data, dict) and data.get("ok") is False:
+                    raise RuntimeError(data.get("error") or "Health check failed")
+            except json.JSONDecodeError:
+                pass
+        latency_ms = max(1, int((time.perf_counter() - start) * 1000))
+        payload["alive"] = True
+        payload["latency_ms"] = latency_ms
+        payload["text"] = f"Alive • {latency_ms} ms"
+        return payload
+    except Exception:
+        pass
+
+    if not port:
+        return payload
+
+    start = time.perf_counter()
+    try:
+        with socket.create_connection((host, port), timeout=SERVER_HEALTH_TIMEOUT):
+            pass
+        latency_ms = max(1, int((time.perf_counter() - start) * 1000))
+        payload["alive"] = True
+        payload["latency_ms"] = latency_ms
+        payload["text"] = f"Alive • {latency_ms} ms"
+        return payload
+    except Exception:
+        return payload
+
+
+def get_backend_health(backend, force=False):
+    backend_id = str((backend or {}).get("id", "")).strip()
+    if not backend_id:
+        return probe_backend_health(backend)
+    now = time.time()
+    with server_health_lock:
+        cached = server_health_cache.get(backend_id)
+        if cached and not force and now - cached.get("checked_at", 0) < SERVER_HEALTH_CACHE_TTL:
+            return dict(cached.get("payload", {}))
+    payload = probe_backend_health(backend)
+    with server_health_lock:
+        server_health_cache[backend_id] = {"checked_at": time.time(), "payload": dict(payload)}
+    return payload
+
+
+def get_all_backend_health_statuses(force=False):
+    backends = load_backends()
+    if not backends:
+        return {}
+    statuses = {}
+    max_workers = min(6, len(backends))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [(backend["id"], executor.submit(get_backend_health, backend, force)) for backend in backends]
+        for backend_id, future in futures:
+            try:
+                statuses[backend_id] = future.result()
+            except Exception:
+                statuses[backend_id] = {
+                    "backend_id": backend_id,
+                    "host": backend_host(next((item for item in backends if item["id"] == backend_id), None)),
+                    "port": backend_port(next((item for item in backends if item["id"] == backend_id), None)),
+                    "alive": False,
+                    "latency_ms": None,
+                    "text": "Dead",
+                }
+    return statuses
 
 
 def backend_display_label(backend=None):
@@ -1469,6 +1592,16 @@ button.server-card-button.is-active .server-badge{background:#fff;color:var(--pr
 .server-copy{flex:1;min-width:0;}
 .server-card-title{display:flex;align-items:center;gap:8px;justify-content:space-between;font-weight:800;font-size:1rem;color:var(--text-primary);}
 .server-card-location{margin-top:4px;color:var(--text-secondary);font-size:.92rem;word-break:break-word;}
+.server-card-health{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;border-radius:999px;border:2px solid rgba(93,9,25,.16);background:rgba(124,16,39,.05);color:var(--text-secondary);font-size:.78rem;font-weight:800;letter-spacing:.02em;}
+.server-card-health-dot{height:10px;width:10px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,.18);flex:none;}
+.server-card-health.is-alive{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.24);color:#166534;}
+.server-card-health.is-alive .server-card-health-dot{background:#16a34a;box-shadow:0 0 0 4px rgba(22,163,74,.16);}
+.server-card-health.is-dead{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.22);color:#991b1b;}
+.server-card-health.is-dead .server-card-health-dot{background:#dc2626;box-shadow:0 0 0 4px rgba(220,38,38,.16);}
+button.server-card-button.is-active .server-card-health{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.28);color:#fff;}
+button.server-card-button.is-active .server-card-health-dot{background:#fde68a;box-shadow:0 0 0 4px rgba(253,230,138,.18);}
+button.server-card-button.is-active .server-card-health.is-alive .server-card-health-dot{background:#86efac;box-shadow:0 0 0 4px rgba(134,239,172,.2);}
+button.server-card-button.is-active .server-card-health.is-dead .server-card-health-dot{background:#fecaca;box-shadow:0 0 0 4px rgba(254,202,202,.18);}
 .server-card-host{display:flex;align-items:center;gap:8px;padding:10px 15px 14px 15px;border-top:2px dashed rgba(93,9,25,.25);color:var(--text-muted);font-size:.86rem;background:rgba(124,16,39,.04);}
 .server-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:2px solid rgba(93,9,25,.18);font-size:.78rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary);background:rgba(124,16,39,.05);}
 .server-badge.active{background:#fff;color:var(--primary-color);border-color:var(--ink);}
@@ -1638,6 +1771,12 @@ def render_server_selector(redirect_to="/services", show_header=True):
         )
         location_bits = [bit for bit in [city, country] if bit]
         location_label = ", ".join(location_bits) if location_bits else display_label
+        health_html = (
+            f'<div class="server-card-health is-checking" data-server-health data-backend-id="{html.escape(backend["id"])}">'
+            '<span class="server-card-health-dot"></span>'
+            '<span data-server-health-text>Checking ping...</span>'
+            "</div>"
+        )
         server_cards.append(
             f"""
       <form method="POST" action="/select-server" class="server-card-form">
@@ -1652,6 +1791,7 @@ def render_server_selector(redirect_to="/services", show_header=True):
                 {badge_html}
               </div>
               <div class="server-card-location"><i class="fa-solid fa-location-dot" style="color:var(--accent-color);margin-right:6px;"></i>{html.escape(location_label)}</div>
+              {health_html}
             </div>
           </div>
           <div class="server-card-host"><i class="fa-solid fa-server" style="color:var(--accent-color);"></i><span>{html.escape(backend_host(backend))}</span></div>
@@ -1732,7 +1872,9 @@ function renderChat(messages){const box=document.getElementById('public-chat-box
 function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.messages)renderChat(j.messages);}).catch(()=>{});}
 function sendPublicChat(e){e.preventDefault();let name=document.getElementById('chat-name').value||'';const message=document.getElementById('chat-message').value||'';name=name.replace(/[^A-Za-z]/g,'').slice(0,10);if(!message.trim())return;const body=new URLSearchParams();body.append('name',name);body.append('message',message);fetch('/chat/send',{method:'POST',body}).then(()=>{document.getElementById('chat-message').value='';fetchChat();}).catch(()=>{});}
 function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{document.getElementById('online-users').textContent=data.online_users;document.getElementById('total-visits').textContent=data.total_visits;document.getElementById('total-accounts').textContent=data.total_accounts;}).catch(()=>{});}
-fetchChat();updateMainStats();setInterval(fetchChat,3000);setInterval(updateMainStats,1000);
+function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=data.text||'Alive';return;}node.classList.add('is-dead');if(text)text.textContent=(data&&data.text)||'Dead';}
+function updateServerHealth(){fetch('/main/server-health?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const statuses=(data&&data.statuses)||{};document.querySelectorAll('[data-server-health]').forEach(node=>{const backendId=node.getAttribute('data-backend-id')||'';applyServerHealth(node,statuses[backendId]||null);});}).catch(()=>{});}
+fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,3000);setInterval(updateMainStats,1000);setInterval(updateServerHealth,15000);
 </script>
 """,
             visits=visits["total_visits"],
@@ -2368,6 +2510,13 @@ def main_stats():
                 continue
     total_accounts = max(total_accounts, remote_total_accounts)
     response = jsonify({"online_users": online_users, "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
+@app.get("/main/server-health")
+def main_server_health():
+    response = jsonify({"statuses": get_all_backend_health_statuses()})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
