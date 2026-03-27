@@ -37,6 +37,7 @@ CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 MAX_CHAT_MESSAGES = 200
 CREATE_COOLDOWN_SECONDS = 600
+MAX_VLESS_BYPASS_OPTIONS = 30
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
@@ -197,10 +198,13 @@ def load_numbered_backends():
 def load_config():
     config = load_json(
         CONFIG_FILE,
-        {"daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT, "create_expiry": dict(CREATE_EXPIRY_DEFAULTS)},
+        {"daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT, "create_expiry": dict(CREATE_EXPIRY_DEFAULTS), "vless_bypass_options": []},
     )
     config.setdefault("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)
     config.setdefault("create_expiry", dict(CREATE_EXPIRY_DEFAULTS))
+    raw_bypass_options = config.get("vless_bypass_options")
+    if raw_bypass_options is None and "bypass_options" in config:
+        raw_bypass_options = config.get("bypass_options")
     for service, default in CREATE_EXPIRY_DEFAULTS.items():
         try:
             config["create_expiry"][service] = max(1, min(int(config["create_expiry"].get(service, default)), 3650))
@@ -210,6 +214,7 @@ def load_config():
         config["daily_limit"] = max(1, min(int(config["daily_limit"]), 999))
     except Exception:
         config["daily_limit"] = DAILY_ACCOUNT_LIMIT_DEFAULT
+    config["vless_bypass_options"] = normalize_vless_bypass_options(raw_bypass_options)
     return config
 
 
@@ -466,6 +471,91 @@ def set_create_account_expiry(service, days):
         config = load_config()
         config["create_expiry"][service] = value
         return save_json(CONFIG_FILE, config)
+
+
+def _clean_bypass_field(value, limit=255):
+    return str(value or "").strip()[:limit]
+
+
+def normalize_vless_bypass_options(raw_options):
+    if isinstance(raw_options, dict):
+        raw_options = raw_options.get("options", [])
+    if not isinstance(raw_options, list):
+        return []
+    normalized = []
+    seen_ids = set()
+    for index, item in enumerate(raw_options, 1):
+        if not isinstance(item, dict):
+            continue
+        name = _clean_bypass_field(item.get("name") or item.get("label"), 80)
+        if not name:
+            continue
+        raw_id = _clean_bypass_field(item.get("id") or item.get("key"), 80)
+        base_id = re.sub(r"[^a-z0-9_-]+", "_", (raw_id or name).lower()).strip("_") or f"bypass_{index}"
+        option_id = base_id
+        suffix = 2
+        while option_id in seen_ids:
+            option_id = f"{base_id}_{suffix}"
+            suffix += 1
+        seen_ids.add(option_id)
+        tls = item.get("tls") if isinstance(item.get("tls"), dict) else {}
+        nontls = item.get("nontls")
+        if not isinstance(nontls, dict):
+            nontls = item.get("non_tls")
+        if not isinstance(nontls, dict):
+            nontls = item.get("nonTls")
+        if not isinstance(nontls, dict):
+            nontls = {}
+        normalized.append(
+            {
+                "id": option_id,
+                "name": name,
+                "tls": {
+                    "address": _clean_bypass_field(tls.get("address")),
+                    "host": _clean_bypass_field(tls.get("host")),
+                    "sni": _clean_bypass_field(tls.get("sni")),
+                },
+                "nontls": {
+                    "address": _clean_bypass_field(nontls.get("address")),
+                    "host": _clean_bypass_field(nontls.get("host")),
+                },
+            }
+        )
+        if len(normalized) >= MAX_VLESS_BYPASS_OPTIONS:
+            break
+    return normalized
+
+
+def get_vless_bypass_options():
+    return list(load_config().get("vless_bypass_options", []))
+
+
+def find_vless_bypass_option(option_id):
+    option_id = str(option_id or "").strip()
+    if not option_id:
+        return None
+    for option in get_vless_bypass_options():
+        if option.get("id") == option_id:
+            return option
+    return None
+
+
+def save_vless_bypass_options(raw_options):
+    normalized = normalize_vless_bypass_options(raw_options)
+    with state_lock:
+        config = load_config()
+        config["vless_bypass_options"] = normalized
+        return save_json(CONFIG_FILE, config), normalized
+
+
+def set_vless_bypass_options_from_json(raw_json):
+    try:
+        parsed = json.loads(raw_json or "[]")
+    except Exception:
+        return False, []
+    if not isinstance(parsed, list):
+        return False, []
+    return save_vless_bypass_options(parsed)
 
 
 def load_counts():
@@ -1699,7 +1789,6 @@ def render_status():
     if selection_redirect:
         return selection_redirect
     current_server_note = render_selected_server_note(change_href="/main", include_change=True)
-    status_selector = render_server_selector("/status", show_header=False)
     return render_page(
         "Server Status",
         render_template_string(
@@ -1707,7 +1796,6 @@ def render_status():
 <div class="container"><div class="neo-box">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-server" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Server Status</h2></div>
   {{ current_server_note|safe }}
-  <div style="margin:0 auto 1.5rem auto;max-width:760px;">{{ status_selector|safe }}</div>
   <div id="status-source-note" class="success-msg" style="display:none;"></div>
   <div class="status-subtitle"><i class="fa-solid fa-network-wired"></i> Network Traffic</div><div class="status-grid-2" id="network-grid"></div>
   <div class="status-subtitle"><i class="fa-solid fa-microchip"></i> System Resources</div><div class="status-grid-2" id="status-grid"></div>
@@ -1722,7 +1810,6 @@ updateStatus();setInterval(updateStatus,2000);
 </script>
 """,
             current_server_note=Markup(current_server_note),
-            status_selector=Markup(status_selector),
         ),
     )
 
@@ -1782,15 +1869,19 @@ def render_service_form(service, error=None, values=None):
       </div>"""
     extra_group = ""
     if service == "vless":
+        bypass_options = get_vless_bypass_options()
+        bypass_choices = [f'<option value=""{" selected" if bypass_value == "" else ""}>Default</option>']
+        for option in bypass_options:
+            option_id = html.escape(str(option.get("id", "")))
+            option_name = html.escape(str(option.get("name", "Custom Bypass")))
+            selected = " selected" if bypass_value == option.get("id") else ""
+            bypass_choices.append(f'<option value="{option_id}"{selected}>{option_name}</option>')
         extra_group = f"""
       <div class="form-group">
         <label for="vless-bypass" class="form-label"><i class="fa-solid fa-shield-alt"></i> BYPASS OPTIONS</label>
         <div class="form-input-container">
           <select name="bypass_option" id="vless-bypass">
-            <option value=""{" selected" if bypass_value == "" else ""}>Default</option>
-            <option value="DITO_UNLI_SOCIAL"{" selected" if bypass_value == "DITO_UNLI_SOCIAL" else ""}>DITO UNLI SOCIAL | USE TLS</option>
-            <option value="SMART_POWER_ALL"{" selected" if bypass_value == "SMART_POWER_ALL" else ""}>SMART POWER ALL | USE Non-TLS</option>
-            <option value="GLOBE_GOSHARE"{" selected" if bypass_value == "GLOBE_GOSHARE" else ""}>GLOBE GOSHARE | USE Non-TLS</option>
+            {''.join(bypass_choices)}
           </select>
         </div>
       </div>"""
@@ -2004,6 +2095,136 @@ def render_readme():
     )
 
 
+def render_vless_bypass_option_row(option=None):
+    option = option or {}
+    tls = option.get("tls") if isinstance(option.get("tls"), dict) else {}
+    nontls = option.get("nontls") if isinstance(option.get("nontls"), dict) else {}
+    option_id = html.escape(str(option.get("id", "")))
+    option_name = html.escape(str(option.get("name", "")))
+    tls_address = html.escape(str(tls.get("address", "")))
+    tls_host = html.escape(str(tls.get("host", "")))
+    tls_sni = html.escape(str(tls.get("sni", "")))
+    nontls_address = html.escape(str(nontls.get("address", "")))
+    nontls_host = html.escape(str(nontls.get("host", "")))
+    return f"""
+<div class="bypass-option-row" style="background:linear-gradient(180deg,#ffffff 0%,#fff7f8 100%);border-radius:16px;padding:1rem;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);margin-bottom:1rem;">
+  <input type="hidden" data-field="id" value="{option_id}">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:.8rem;">
+    <div style="font-weight:700;color:var(--primary-color);font-family:'Bangers','Comic Neue',cursive;letter-spacing:.05em;">Bypass Option</div>
+    <button type="button" data-remove-bypass style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);padding:10px 18px;">Remove</button>
+  </div>
+  <div class="status-grid-2" style="margin-bottom:.8rem;">
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">Option Name</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="name" placeholder="Enter bypass name" maxlength="80" value="{option_name}"></div>
+    </div>
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">TLS Address</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="tls_address" placeholder="Blank = server host" maxlength="255" value="{tls_address}"></div>
+    </div>
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">TLS Host</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="tls_host" placeholder="Blank = server host" maxlength="255" value="{tls_host}"></div>
+    </div>
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">TLS SNI</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="tls_sni" placeholder="Blank = server host" maxlength="255" value="{tls_sni}"></div>
+    </div>
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">Non-TLS Address</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="nontls_address" placeholder="Blank = server host" maxlength="255" value="{nontls_address}"></div>
+    </div>
+    <div>
+      <label style="display:block;font-weight:700;color:var(--text-secondary);margin-bottom:.35rem;">Non-TLS Host</label>
+      <div class="form-input-container" style="max-width:none;"><input type="text" data-field="nontls_host" placeholder="Blank = server host" maxlength="255" value="{nontls_host}"></div>
+    </div>
+  </div>
+</div>"""
+
+
+def render_vless_bypass_admin():
+    rows_html = "".join(render_vless_bypass_option_row(option) for option in get_vless_bypass_options())
+    empty_display = "none" if rows_html else "flex"
+    template_row = render_vless_bypass_option_row()
+    return f"""
+<div class="link-box" style="margin-top:1.2rem;">
+  <div style="font-weight:700;margin-bottom:.45rem;">VLESS Bypass Options</div>
+  <div style="color:var(--text-secondary);margin-bottom:1rem;">These apply to all servers. Leave any TLS or Non-TLS field blank to use the selected server host automatically.</div>
+  <form method="POST" action="/admin" id="bypass-options-form" style="margin-bottom:0;align-items:stretch;">
+    <input type="hidden" name="action" value="save_bypass_options">
+    <input type="hidden" name="bypass_options_json" id="bypass-options-json">
+    <div id="bypass-options-empty" class="success-msg" style="display:{empty_display};margin-bottom:1rem;background:rgba(124,16,39,.06);border-left-color:var(--warning);"><i class="fa-solid fa-circle-info" style="color:var(--warning);"></i><div>No bypass options added yet.</div></div>
+    <div id="bypass-options-editor">{rows_html}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:.8rem;">
+      <button type="button" id="add-bypass-option" style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-plus"></i> Add Bypass Option</button>
+      <button type="submit"><i class="fa-solid fa-save"></i> Save Bypass Options</button>
+    </div>
+  </form>
+  <template id="bypass-option-template">{template_row}</template>
+  <script>
+  (function(){{
+    const form = document.getElementById('bypass-options-form');
+    if (!form) return;
+    const editor = document.getElementById('bypass-options-editor');
+    const empty = document.getElementById('bypass-options-empty');
+    const template = document.getElementById('bypass-option-template');
+    const hidden = document.getElementById('bypass-options-json');
+    const addButton = document.getElementById('add-bypass-option');
+    function syncEmpty() {{
+      if (!empty || !editor) return;
+      empty.style.display = editor.querySelector('.bypass-option-row') ? 'none' : 'flex';
+    }}
+    function bindRow(row) {{
+      const remove = row.querySelector('[data-remove-bypass]');
+      if (remove) {{
+        remove.addEventListener('click', function() {{
+          row.remove();
+          syncEmpty();
+        }});
+      }}
+    }}
+    editor.querySelectorAll('.bypass-option-row').forEach(bindRow);
+    syncEmpty();
+    if (addButton && template) {{
+      addButton.addEventListener('click', function() {{
+        const row = template.content.firstElementChild.cloneNode(true);
+        editor.appendChild(row);
+        bindRow(row);
+        syncEmpty();
+        const nameInput = row.querySelector('[data-field=\"name\"]');
+        if (nameInput) nameInput.focus();
+      }});
+    }}
+    form.addEventListener('submit', function() {{
+      const options = [];
+      editor.querySelectorAll('.bypass-option-row').forEach(function(row) {{
+        const get = function(field) {{
+          const element = row.querySelector('[data-field=\"' + field + '\"]');
+          return element ? element.value.trim() : '';
+        }};
+        const name = get('name');
+        if (!name) return;
+        options.push({{
+          id: get('id'),
+          name: name,
+          tls: {{
+            address: get('tls_address'),
+            host: get('tls_host'),
+            sni: get('tls_sni')
+          }},
+          nontls: {{
+            address: get('nontls_address'),
+            host: get('nontls_host')
+          }}
+        }});
+      }});
+      hidden.value = JSON.stringify(options);
+    }});
+  }})();
+  </script>
+</div>"""
+
+
 def render_admin(success=None, error=None):
     if not session.get("admin_authenticated"):
         hint = "" if os.environ.get("ADMIN_PASSWORD") else '<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-info" style="color:var(--error);"></i><div>Set <code>ADMIN_PASSWORD</code> in Vercel to enable admin login.</div></div>'
@@ -2021,6 +2242,7 @@ def render_admin(success=None, error=None):
   </form>
 </div></div>""")
     expiry = get_create_account_expiry()
+    bypass_editor_html = render_vless_bypass_admin()
     events = recent_admin_events(8)
     event_cards = "".join(
         f'<div class="link-box"><div style="font-weight:700">{html.escape(e["action"].replace("_"," ").title())}</div><div style="color:var(--text-muted);font-size:.9rem">{html.escape(e["time"])} | {html.escape(e["status"])}</div><div style="margin-top:.5rem">{html.escape(json.dumps(e.get("details", {})))}</div></div>'
@@ -2042,6 +2264,7 @@ def render_admin(success=None, error=None):
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form></div>
     </div>
+    {bypass_editor_html}
     <div style="margin-top:1.2rem;"><div style="font-weight:700;margin-bottom:.8rem;">Recent Audit</div>{event_cards}</div>
   </div>
 </div>""")
@@ -2253,7 +2476,17 @@ def submit_service_request(service):
     if service != "vless":
         payload["password"] = values.get("password", "")
     if service == "vless":
-        payload["bypass_option"] = values.get("bypass_option", "")
+        bypass_option_id = values.get("bypass_option", "").strip()
+        payload["bypass_option"] = bypass_option_id
+        if bypass_option_id:
+            selected_bypass = find_vless_bypass_option(bypass_option_id)
+            if not selected_bypass:
+                return render_service_form(service, error="Selected bypass option is no longer available.", values=values)
+            payload["bypass_config"] = {
+                "name": selected_bypass.get("name", ""),
+                "tls": dict(selected_bypass.get("tls", {})),
+                "nontls": dict(selected_bypass.get("nontls", {})),
+            }
     try:
         data = backend_request(f"/create/{service}", payload=payload, method="POST")
         result = data.get("result", {}) if isinstance(data, dict) else {}
@@ -2337,6 +2570,13 @@ def admin_post():
             log_admin_event("update_create_expiry", "success", {"service": service, "days": days})
             return redirect("/admin?success=" + urllib.parse.quote(f"New account expiration updated for {service.upper()}."), code=303)
         return redirect("/admin?error=" + urllib.parse.quote("Failed to update new account expiration."), code=303)
+    if action == "save_bypass_options":
+        ok, saved_options = set_vless_bypass_options_from_json(request.form.get("bypass_options_json", "[]"))
+        if ok:
+            log_admin_event("save_bypass_options", "success", {"count": len(saved_options)})
+            return redirect("/admin?success=" + urllib.parse.quote("VLESS bypass options updated."), code=303)
+        log_admin_event("save_bypass_options", "failed", {})
+        return redirect("/admin?error=" + urllib.parse.quote("Failed to update VLESS bypass options."), code=303)
     return redirect("/admin?error=" + urllib.parse.quote("Unknown admin action."), code=303)
 
 
