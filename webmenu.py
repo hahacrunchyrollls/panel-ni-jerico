@@ -439,8 +439,71 @@ def save_panel_config(config):
     return bool(local_ok or remote_ok)
 
 
+def default_counts_state():
+    return {"date": _ph_date(), "counts": {}}
+
+
+def normalize_counts_state(raw_data, today=None):
+    today = today or _ph_date()
+    data = raw_data if isinstance(raw_data, dict) else {}
+    date_label = str(data.get("date", "") or "").strip() or today
+    raw_counts = data.get("counts", {})
+    counts = {}
+    if isinstance(raw_counts, dict):
+        if raw_counts and all(not isinstance(value, dict) for value in raw_counts.values()):
+            raw_counts = {"default": raw_counts}
+        for backend_id, bucket in raw_counts.items():
+            backend_key = str(backend_id or "").strip() or "default"
+            if not isinstance(bucket, dict):
+                continue
+            normalized_bucket = {}
+            for service, value in bucket.items():
+                service_key = str(service or "").strip()
+                if not service_key:
+                    continue
+                try:
+                    amount = max(int(value or 0), 0)
+                except Exception:
+                    continue
+                if amount:
+                    normalized_bucket[service_key] = amount
+            if normalized_bucket:
+                counts[backend_key] = normalized_bucket
+    if date_label != today:
+        date_label = today
+        counts = {}
+    return {"date": date_label, "counts": counts}
+
+
+def merge_counts_state(primary, secondary):
+    left = normalize_counts_state(primary)
+    right = normalize_counts_state(secondary, today=left["date"])
+    merged = {"date": left["date"], "counts": {}}
+    for source in (left.get("counts", {}), right.get("counts", {})):
+        for backend_id, bucket in source.items():
+            merged_bucket = merged["counts"].setdefault(backend_id, {})
+            for service, amount in (bucket or {}).items():
+                merged_bucket[service] = max(int(merged_bucket.get(service, 0) or 0), int(amount or 0))
+    merged["counts"] = {backend_id: bucket for backend_id, bucket in merged["counts"].items() if bucket}
+    return merged
+
+
+def counts_state_from_panel_state(state):
+    return normalize_counts_state({"date": (state or {}).get("daily_date"), "counts": (state or {}).get("daily_counts", {})})
+
+
 def default_panel_state():
-    return {"total_visits": 0, "total_accounts": 0, "messages": [], "updated_at": 0}
+    counts_state = default_counts_state()
+    return {
+        "total_visits": 0,
+        "total_accounts": 0,
+        "messages": [],
+        "updated_at": 0,
+        "daily_date": counts_state["date"],
+        "daily_counts": counts_state["counts"],
+        "last_online_users": 0,
+        "last_status_total_accounts": 0,
+    }
 
 
 def normalize_panel_messages(raw_messages):
@@ -475,6 +538,17 @@ def normalize_panel_state(raw_state):
         normalized["updated_at"] = max(int(state.get("updated_at", 0) or 0), 0)
     except Exception:
         normalized["updated_at"] = 0
+    counts_state = counts_state_from_panel_state(state)
+    normalized["daily_date"] = counts_state["date"]
+    normalized["daily_counts"] = counts_state["counts"]
+    try:
+        normalized["last_online_users"] = max(int(state.get("last_online_users", 0) or 0), 0)
+    except Exception:
+        normalized["last_online_users"] = 0
+    try:
+        normalized["last_status_total_accounts"] = max(int(state.get("last_status_total_accounts", 0) or 0), 0)
+    except Exception:
+        normalized["last_status_total_accounts"] = 0
     normalized["messages"] = normalize_panel_messages(state.get("messages", []))
     return normalized
 
@@ -500,6 +574,8 @@ def update_local_panel_state(state):
         visits["total_visits"] = max(int(visits.get("total_visits", 0) or 0), normalized["total_visits"])
         visits["total_accounts"] = max(int(visits.get("total_accounts", 0) or 0), normalized["total_accounts"])
         save_json(VISITS_FILE, visits)
+        counts_state = merge_counts_state(load_json(COUNTS_FILE, default_counts_state()), {"date": normalized["daily_date"], "counts": normalized["daily_counts"]})
+        save_json(COUNTS_FILE, counts_state)
         save_json(CHAT_FILE, {"messages": normalized["messages"]})
     return cache_panel_state(normalized)
 
@@ -562,7 +638,17 @@ def load_backend_summary_counters(force=False):
         with backend_summary_lock:
             backend_summary_cache["loaded_at"] = time.time()
             backend_summary_cache["counters"] = dict(counters)
+        mutate_remote_panel_state(
+            "/panel-state/summary",
+            {"online_users": counters["online_users"], "status_total_accounts": counters["total_accounts"]},
+        )
         return counters
+    remote_state = load_remote_panel_state()
+    if remote_state:
+        return {
+            "online_users": max(int(remote_state.get("last_online_users", 0) or 0), 0),
+            "total_accounts": max(int(remote_state.get("last_status_total_accounts", 0) or 0), 0),
+        }
     with backend_summary_lock:
         cached = backend_summary_cache.get("counters")
         return dict(cached) if cached else counters
@@ -1030,14 +1116,13 @@ def set_vless_bypass_options_from_json(raw_json):
 
 
 def load_counts():
-    data = load_json(COUNTS_FILE, {"date": _ph_date(), "counts": {}})
-    if data.get("date") != _ph_date():
-        data = {"date": _ph_date(), "counts": {}}
-        save_json(COUNTS_FILE, data)
-    data.setdefault("counts", {})
-    counts = data["counts"]
-    if counts and all(isinstance(value, int) for value in counts.values()):
-        data["counts"] = {"default": counts}
+    data = normalize_counts_state(load_json(COUNTS_FILE, default_counts_state()))
+    remote_state = load_remote_panel_state()
+    if remote_state:
+        merged = merge_counts_state(data, counts_state_from_panel_state(remote_state))
+        if merged != data:
+            save_json(COUNTS_FILE, merged)
+        return merged
     return data
 
 
@@ -1080,11 +1165,18 @@ def get_total_daily_created_count(service=None):
 
 
 def increment_daily_created_count(service, backend_id=None):
+    backend_id = backend_id or selected_backend_id() or "default"
+    remote_state = mutate_remote_panel_state(
+        "/panel-state/daily-account",
+        {"service": service, "backend_id": backend_id, "amount": 1, "date": _ph_date()},
+    )
+    if remote_state:
+        counts_state = counts_state_from_panel_state(remote_state)
+        return int((counts_state.get("counts", {}).get(backend_id, {}) or {}).get(service, 0) or 0)
     with state_lock:
-        data = load_counts()
-        backend_id = backend_id or selected_backend_id() or "default"
+        data = normalize_counts_state(load_json(COUNTS_FILE, default_counts_state()))
         data["counts"].setdefault(backend_id, {})
-        data["counts"][backend_id][service] = int(data["counts"][backend_id].get(service, 0)) + 1
+        data["counts"][backend_id][service] = int(data["counts"][backend_id].get(service, 0) or 0) + 1
         save_json(COUNTS_FILE, data)
         return data["counts"][backend_id][service]
 
@@ -2252,11 +2344,11 @@ function renderChat(messages){const box=document.getElementById('public-chat-box
 function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.messages))renderChat(j.messages);}).catch(()=>{});}
 function sendPublicChat(e){e.preventDefault();let name=document.getElementById('chat-name').value||'';const message=document.getElementById('chat-message').value||'';name=name.replace(/[^A-Za-z]/g,'').slice(0,10);if(!message.trim())return;const body=new URLSearchParams();body.append('name',name);body.append('message',message);fetch('/chat/send',{method:'POST',body}).then(()=>{document.getElementById('chat-message').value='';fetchChat();}).catch(()=>{});}
 function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;}).catch(()=>{});}
-function formatServerHealthText(data){if(!data)return'Dead';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Dead';}
+function formatServerHealthText(data){if(!data)return'Ping unavailable';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Ping unavailable';}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=formatServerHealthText(data);return;}node.classList.add('is-dead');if(text)text.textContent=formatServerHealthText(data);}
-async function measureBrowserPing(status){if(!status||!status.health_url)return null;const healthUrl=String(status.health_url||'').trim();if(!healthUrl)return null;if(window.location.protocol==='https:'&&/^http:\/\//i.test(healthUrl))return null;const controller=typeof AbortController==='function'?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),4000):null;const start=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();try{const target=healthUrl+(healthUrl.includes('?')?'&':'?')+'_ping='+Date.now();const response=await fetch(target,{method:'GET',mode:'cors',cache:'no-store',credentials:'omit',signal:controller?controller.signal:void 0});if(!response.ok)throw new Error('HTTP '+response.status);await response.text();const end=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();const latency=Math.max(1,Math.round(end-start));return {alive:true,latency_ms:latency,text:'Ping '+latency+' ms',source:'client'};}catch(_error){return null;}finally{if(timer)clearTimeout(timer);}}
+async function measureBrowserPing(status){if(!status||!status.health_url)return {alive:false,text:'Ping unavailable',source:'client'};const healthUrl=String(status.health_url||'').trim();if(!healthUrl)return {alive:false,text:'Ping unavailable',source:'client'};if(window.location.protocol==='https:'&&/^http:\/\//i.test(healthUrl))return {alive:false,text:'Ping unavailable',source:'client'};const controller=typeof AbortController==='function'?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),4000):null;const start=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();try{const target=healthUrl+(healthUrl.includes('?')?'&':'?')+'_ping='+Date.now();const response=await fetch(target,{method:'GET',mode:'cors',cache:'no-store',credentials:'omit',signal:controller?controller.signal:void 0});if(!response.ok)throw new Error('HTTP '+response.status);await response.text();const end=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();const latency=Math.max(1,Math.round(end-start));return {alive:true,latency_ms:latency,text:'Ping '+latency+' ms',source:'client'};}catch(_error){return {alive:false,text:'Dead',source:'client'};}finally{if(timer)clearTimeout(timer);}}
 let serverHealthUpdating=false;
-async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const fallback=statuses[backendId]||null;const browserStatus=await measureBrowserPing(fallback);applyServerHealth(node,browserStatus||fallback);}));}catch(_error){}finally{serverHealthUpdating=false;}}
+async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,browserStatus);}));}catch(_error){}finally{serverHealthUpdating=false;}}
 fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,5000);setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
