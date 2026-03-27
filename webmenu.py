@@ -28,7 +28,6 @@ STATE_DIR = Path("/tmp/webmenu_state") if IS_VERCEL else Path.cwd() / ".webmenu_
 VISITS_FILE = STATE_DIR / "visits.json"
 CONFIG_FILE = STATE_DIR / "config.json"
 COUNTS_FILE = STATE_DIR / "counts.json"
-CHAT_FILE = STATE_DIR / "chat.json"
 AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 SESSION_SECRET_FILE = STATE_DIR / "session_secret.txt"
@@ -38,7 +37,6 @@ NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/re
 
 CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
-MAX_CHAT_MESSAGES = 200
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
 SERVER_HEALTH_CACHE_TTL = 15
@@ -70,7 +68,6 @@ STATUS_SERVICE_ORDER = [
 ]
 
 state_lock = threading.Lock()
-chat_lock = threading.Lock()
 traffic_lock = threading.Lock()
 server_health_lock = threading.Lock()
 last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
@@ -497,30 +494,12 @@ def default_panel_state():
     return {
         "total_visits": 0,
         "total_accounts": 0,
-        "messages": [],
         "updated_at": 0,
         "daily_date": counts_state["date"],
         "daily_counts": counts_state["counts"],
         "last_online_users": 0,
         "last_status_total_accounts": 0,
     }
-
-
-def normalize_panel_messages(raw_messages):
-    if not isinstance(raw_messages, list):
-        return []
-    normalized = []
-    for item in raw_messages:
-        if not isinstance(item, dict):
-            continue
-        name = re.sub(r"[^A-Za-z0-9 _.-]", "", html.unescape(str(item.get("name", "") or ""))).strip()[:20] or "Anonymous"
-        message = html.unescape(str(item.get("message", "") or "")).strip()[:500]
-        if not message:
-            continue
-        message_id = str(item.get("id", "") or "").strip()[:80]
-        time_label = str(item.get("time", "") or "").strip()[:32]
-        normalized.append({"id": message_id, "name": name, "message": message, "time": time_label})
-    return normalized[-MAX_CHAT_MESSAGES:]
 
 
 def normalize_panel_state(raw_state):
@@ -549,7 +528,6 @@ def normalize_panel_state(raw_state):
         normalized["last_status_total_accounts"] = max(int(state.get("last_status_total_accounts", 0) or 0), 0)
     except Exception:
         normalized["last_status_total_accounts"] = 0
-    normalized["messages"] = normalize_panel_messages(state.get("messages", []))
     return normalized
 
 
@@ -576,7 +554,6 @@ def update_local_panel_state(state):
         save_json(VISITS_FILE, visits)
         counts_state = merge_counts_state(load_json(COUNTS_FILE, default_counts_state()), {"date": normalized["daily_date"], "counts": normalized["daily_counts"]})
         save_json(COUNTS_FILE, counts_state)
-        save_json(CHAT_FILE, {"messages": normalized["messages"]})
     return cache_panel_state(normalized)
 
 
@@ -1300,35 +1277,6 @@ def format_cooldown_label(seconds):
     if minutes:
         return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
     return f"{remainder} second" if remainder == 1 else f"{remainder} seconds"
-
-
-def load_chat_messages():
-    remote_state = load_remote_panel_state()
-    if remote_state:
-        return list(remote_state.get("messages", []))
-    data = load_json(CHAT_FILE, {"messages": []})
-    return normalize_panel_messages(data.get("messages", []))
-
-
-def add_chat_message(name, message):
-    clean_name = re.sub(r"[^A-Za-z]", "", name or "").strip()[:10] or "Anonymous"
-    clean_message = (message or "").strip()[:500]
-    if not clean_message:
-        return
-    remote_state = mutate_remote_panel_state("/panel-state/chat", {"name": clean_name, "message": clean_message})
-    if remote_state:
-        return
-    entry = {
-        "id": str(int(time.time() * 1000)),
-        "name": clean_name,
-        "message": clean_message,
-        "time": (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
-    }
-    with chat_lock:
-        data = load_json(CHAT_FILE, {"messages": []})
-        messages = normalize_panel_messages(data.get("messages", []))
-        messages.append(entry)
-        save_json(CHAT_FILE, {"messages": messages[-MAX_CHAT_MESSAGES:]})
 
 
 def log_admin_event(action, status="success", details=None):
@@ -2099,7 +2047,6 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .global-ad-wrap{width:min(100% - 2rem,960px);margin:1rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
 .global-ad-shell{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;overflow:visible;}
 ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
-.public-chat{margin-top:1.5rem;display:flex;flex-direction:column;gap:8px;align-items:center}.chat-box{width:100%;max-width:400px;background:linear-gradient(180deg,#ffffff 0%,#fff5f7 100%);border-radius:16px;padding:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);max-height:320px;overflow:auto;font-size:.98rem}.chat-message{padding:8px;border-radius:12px;margin-bottom:8px;background:rgba(124,16,39,.05);border:2px dashed rgba(124,16,39,.24);display:block}.chat-meta{display:flex;align-items:center;gap:8px}.chat-name{font-weight:700;color:var(--primary-color)}.chat-time{color:var(--text-muted);font-size:.8rem;margin-left:auto}.chat-text{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.chat-form{width:100%;max-width:400px;display:flex;gap:8px;align-items:center;flex-direction:column}.chat-form input[type="text"]{width:100%}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
@@ -2341,24 +2288,13 @@ def render_home():
     {{ continue_html|safe }}
   </div>
 </div>
-<div class="public-chat">
-  <div class="chat-box" id="public-chat-box"></div>
-  <form id="public-chat-form" onsubmit="sendPublicChat(event)" class="chat-form">
-    <input name="name" id="chat-name" type="text" placeholder="Name (max 10 letters)" maxlength="10" autocomplete="off">
-    <input name="message" id="chat-message" type="text" placeholder="Message" required>
-    <button type="submit">Send</button>
-  </form>
-</div>
 <div class="stats-container">
   <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
   <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="online-users">0</div><div class="stat-label">Online Users</div></div></div>
   <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">0</div><div class="stat-label">Accounts Created</div></div></div>
 </div>
 <script>
-let lastChatSignature='';const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
-function renderChat(messages){const box=document.getElementById('public-chat-box');if(!box)return;const safeMessages=Array.isArray(messages)?messages:[];const signature=JSON.stringify(safeMessages);if(signature===lastChatSignature)return;lastChatSignature=signature;const stickToBottom=box.scrollHeight-box.scrollTop-box.clientHeight<24;box.textContent='';safeMessages.forEach(m=>{const item=document.createElement('div');item.className='chat-message';const meta=document.createElement('div');meta.className='chat-meta';const name=document.createElement('div');name.className='chat-name';name.textContent=m&&m.name?m.name:'Anonymous';const time=document.createElement('div');time.className='chat-time';time.textContent=m&&m.time?m.time:'';meta.appendChild(name);meta.appendChild(time);const text=document.createElement('div');text.className='chat-text';text.textContent=m&&m.message?m.message:'';item.appendChild(meta);item.appendChild(text);box.appendChild(item);});if(stickToBottom||!safeMessages.length)box.scrollTop=box.scrollHeight;}
-function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.messages))renderChat(j.messages);}).catch(()=>{});}
-function sendPublicChat(e){e.preventDefault();let name=document.getElementById('chat-name').value||'';const message=document.getElementById('chat-message').value||'';name=name.replace(/[^A-Za-z]/g,'').slice(0,10);if(!message.trim())return;const body=new URLSearchParams();body.append('name',name);body.append('message',message);fetch('/chat/send',{method:'POST',body}).then(()=>{document.getElementById('chat-message').value='';fetchChat();}).catch(()=>{});}
+const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
 function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;}).catch(()=>{});}
 function formatServerHealthText(data){if(!data)return'Ping unavailable';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Ping unavailable';}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=formatServerHealthText(data);return;}node.classList.add('is-dead');if(text)text.textContent=formatServerHealthText(data);}
@@ -2370,7 +2306,7 @@ async function measureBrowserPing(status){const candidates=buildPingCandidates(s
 function mergeServerHealth(browserStatus,fallback){if(browserStatus&&browserStatus.alive)return browserStatus;if(fallback&&fallback.alive)return {alive:true,text:'Alive',source:'panel'};return browserStatus||fallback||{alive:false,text:'Dead'};}
 let serverHealthUpdating=false;
 async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,mergeServerHealth(browserStatus,status));}));}catch(_error){}finally{serverHealthUpdating=false;}}
-fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,5000);setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
+updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
             visits=visits["total_visits"],
@@ -3006,20 +2942,6 @@ def main_server_health():
     response = jsonify({"statuses": get_all_backend_health_statuses()})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
-
-
-@app.get("/chat/messages")
-def chat_messages_route():
-    response = jsonify({"messages": load_chat_messages()[-MAX_CHAT_MESSAGES:]})
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return response
-
-
-@app.post("/chat/send")
-def chat_send_route():
-    add_chat_message(request.form.get("name", ""), request.form.get("message", ""))
-    return jsonify({"ok": True})
-
 
 @app.get("/hostname-to-ip")
 def hostname_lookup_page():
