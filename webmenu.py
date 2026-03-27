@@ -35,7 +35,7 @@ README_FILE = Path.cwd() / "README.md"
 FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 
-CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "openvpn": 3}
+CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "wireguard": 2, "openvpn": 3}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
@@ -50,6 +50,7 @@ SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
     ("vless", "VLESS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-v2ray.png"),
     ("hysteria", "HYSTERIA", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-hysteria.png"),
+    ("wireguard", "WIREGUARD", "https://www.wireguard.com/img/wireguard.svg"),
     ("openvpn", "OPENVPN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-openvpn.png"),
 ]
 STATUS_SERVICE_ORDER = [
@@ -1572,7 +1573,7 @@ def render_admin_account_manager():
         return """
 <div class="link-box" style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
-  <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, and OpenVPN accounts.</div>
+  <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts.</div>
 </div>"""
     sections = []
     for group in groups:
@@ -1627,7 +1628,7 @@ def render_admin_account_manager():
         """
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.4rem;">Account Manager</div>
-  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Review live accounts on every connected backend, remove accounts instantly, or set a new expiration in days from now.</div>
+  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Review live SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts on every connected backend, remove accounts instantly, or set a new expiration in days from now.</div>
   """
         + "".join(sections)
         + "</div>"
@@ -2856,7 +2857,7 @@ def render_service_form(service, error=None, values=None):
     if error:
         error_html = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
     password_group = ""
-    if service != "vless":
+    if service not in {"vless", "wireguard"}:
         password_group = f"""
       <div class="form-group">
         <label for="{service}-password" class="form-label"><i class="fa-solid fa-key"></i> Password</label>
@@ -3020,6 +3021,36 @@ def render_service_result(service, result):
         if legacy_link and legacy_link != link:
             content += f"""
   <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Legacy Hysteria URI</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{legacy_link}"><sl-copy-button value="{legacy_link}"></sl-copy-button></div></div>"""
+    elif service == "wireguard":
+        config_text = str(result.get("config_content", ""))
+        config_json = json.dumps(config_text)
+        filename = json.dumps(f"{result.get('username', 'wireguard')}.conf")
+        endpoint = html.escape(str(result.get("endpoint", domain)))
+        client_ip = html.escape(str(result.get("client_ip", "")).strip() or "N/A")
+        content += f"""
+  <div class="info-grid">
+    <div>Endpoint:</div><div>{endpoint}</div>
+    <div>Client IP:</div><div>{client_ip}</div>
+  </div>
+  <div class="link-box">
+    <div class="link-title tls"><img src="{icon}" style="height:1.05em;"> WireGuard Config</div>
+    <textarea readonly style="width:100%;min-height:220px;padding:12px;border-radius:14px;border:3px solid var(--card-border);background:rgba(255,255,255,.9);color:var(--text-primary);font-family:ui-monospace,'Cascadia Code','SF Mono',monospace;resize:vertical;">{html.escape(config_text)}</textarea>
+  </div>
+  <button onclick="downloadWireGuardConfig()" style="width:100%;margin-top:1rem;"><i class="fa-solid fa-download"></i> Download WireGuard Config</button>
+  <script>
+  function downloadWireGuardConfig() {{
+    const content = {config_json};
+    const blob = new Blob([content], {{ type: 'text/plain;charset=utf-8' }});
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = {filename};
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    setTimeout(function() {{ URL.revokeObjectURL(url); }}, 1000);
+  }}
+  </script>"""
     elif service == "openvpn":
         ovpn_content = json.dumps(str(result.get("ovpn_content", "")))
         filename = json.dumps(f"{result.get('username', 'openvpn')}.ovpn")
@@ -3267,7 +3298,7 @@ def render_admin(success=None, error=None):
     </div>
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This is one shared max per day across all servers and all services.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
     </div>
     {account_manager_html}
     {bypass_editor_html}
@@ -3470,7 +3501,7 @@ def submit_service_request(service):
     if get_total_daily_created_count() >= get_daily_account_limit():
         return render_service_form(service, error="Daily account creation limit reached across all servers for today.", values=values)
     payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
-    if service != "vless":
+    if service not in {"vless", "wireguard"}:
         payload["password"] = values.get("password", "")
     if service == "vless":
         bypass_option_id = values.get("bypass_option", "").strip()
@@ -3523,6 +3554,16 @@ def hysteria_page():
 @app.post("/hysteria")
 def hysteria_create():
     return submit_service_request("hysteria")
+
+
+@app.get("/wireguard")
+def wireguard_page():
+    return render_service_form("wireguard")
+
+
+@app.post("/wireguard")
+def wireguard_create():
+    return submit_service_request("wireguard")
 
 
 @app.get("/openvpn")
