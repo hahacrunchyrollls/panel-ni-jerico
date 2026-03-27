@@ -1,5 +1,6 @@
 import base64
 import copy
+import hashlib
 import html
 import json
 import os
@@ -30,6 +31,7 @@ COUNTS_FILE = STATE_DIR / "counts.json"
 CHAT_FILE = STATE_DIR / "chat.json"
 AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
+SESSION_SECRET_FILE = STATE_DIR / "session_secret.txt"
 README_FILE = Path.cwd() / "README.md"
 FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
@@ -42,6 +44,8 @@ MAX_VLESS_BYPASS_OPTIONS = 30
 SERVER_HEALTH_CACHE_TTL = 15
 SERVER_HEALTH_TIMEOUT = 2
 REMOTE_PANEL_CONFIG_CACHE_TTL = 15
+REMOTE_PANEL_STATE_CACHE_TTL = 3
+BACKEND_SUMMARY_CACHE_TTL = 5
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
@@ -73,14 +77,76 @@ last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
 server_health_cache = {}
 panel_config_lock = threading.Lock()
 panel_config_cache = {"loaded_at": 0.0, "config": None}
+panel_state_lock = threading.Lock()
+panel_state_cache = {"loaded_at": 0.0, "state": None}
+backend_summary_lock = threading.Lock()
+backend_summary_cache = {"loaded_at": 0.0, "counters": {"online_users": 0, "total_accounts": 0}}
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
 app.url_map.strict_slashes = False
 
 
 def _clone(value):
     return copy.deepcopy(value)
+
+
+def stable_session_secret():
+    explicit_secret = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET")
+    if explicit_secret:
+        return explicit_secret
+
+    seed_parts = []
+    for key in (
+        "ADMIN_USERNAME",
+        "ADMIN_PASSWORD",
+        "SERVER_BACKENDS_JSON",
+        "SERVER_API_URL",
+        "SERVER_API_TOKEN",
+        "SERVER_API_UR",
+        "SERVER_URL",
+    ):
+        value = os.environ.get(key, "").strip()
+        if value:
+            seed_parts.append(f"{key}={value}")
+    for index in range(1, 33):
+        url_value = os.environ.get(f"SERVER_API_URL_{index}", "").strip()
+        token_value = os.environ.get(f"SERVER_API_TOKEN_{index}", "").strip()
+        if url_value:
+            seed_parts.append(f"SERVER_API_URL_{index}={url_value}")
+        if token_value:
+            seed_parts.append(f"SERVER_API_TOKEN_{index}={token_value}")
+    if seed_parts:
+        digest = hashlib.sha256()
+        for part in seed_parts:
+            digest.update(part.encode("utf-8"))
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    if not IS_VERCEL:
+        try:
+            SESSION_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+            if SESSION_SECRET_FILE.exists():
+                saved = SESSION_SECRET_FILE.read_text(encoding="utf-8").strip()
+                if saved:
+                    return saved
+            generated = secrets.token_hex(32)
+            SESSION_SECRET_FILE.write_text(generated, encoding="utf-8")
+            return generated
+        except Exception:
+            pass
+
+    fallback_seed = "|".join(
+        [
+            "fuji-webpanel",
+            str(Path.cwd()),
+            os.environ.get("VERCEL_PROJECT_PRODUCTION_URL", "").strip(),
+            os.environ.get("VERCEL_URL", "").strip(),
+        ]
+    )
+    return hashlib.sha256(fallback_seed.encode("utf-8")).hexdigest()
+
+
+app.secret_key = stable_session_secret()
 
 
 def ensure_state_dir():
@@ -371,6 +437,135 @@ def save_panel_config(config):
     if IS_VERCEL:
         return bool(local_ok and remote_ok)
     return bool(local_ok or remote_ok)
+
+
+def default_panel_state():
+    return {"total_visits": 0, "total_accounts": 0, "messages": [], "updated_at": 0}
+
+
+def normalize_panel_messages(raw_messages):
+    if not isinstance(raw_messages, list):
+        return []
+    normalized = []
+    for item in raw_messages:
+        if not isinstance(item, dict):
+            continue
+        name = re.sub(r"[^A-Za-z0-9 _.-]", "", html.unescape(str(item.get("name", "") or ""))).strip()[:20] or "Anonymous"
+        message = html.unescape(str(item.get("message", "") or "")).strip()[:500]
+        if not message:
+            continue
+        message_id = str(item.get("id", "") or "").strip()[:80]
+        time_label = str(item.get("time", "") or "").strip()[:32]
+        normalized.append({"id": message_id, "name": name, "message": message, "time": time_label})
+    return normalized[-MAX_CHAT_MESSAGES:]
+
+
+def normalize_panel_state(raw_state):
+    state = raw_state if isinstance(raw_state, dict) else {}
+    normalized = default_panel_state()
+    try:
+        normalized["total_visits"] = max(int(state.get("total_visits", 0) or 0), 0)
+    except Exception:
+        normalized["total_visits"] = 0
+    try:
+        normalized["total_accounts"] = max(int(state.get("total_accounts", 0) or 0), 0)
+    except Exception:
+        normalized["total_accounts"] = 0
+    try:
+        normalized["updated_at"] = max(int(state.get("updated_at", 0) or 0), 0)
+    except Exception:
+        normalized["updated_at"] = 0
+    normalized["messages"] = normalize_panel_messages(state.get("messages", []))
+    return normalized
+
+
+def primary_panel_backend():
+    backends = load_backends()
+    return backends[0] if backends else None
+
+
+def cache_panel_state(state):
+    normalized = normalize_panel_state(state)
+    with panel_state_lock:
+        panel_state_cache["loaded_at"] = time.time()
+        panel_state_cache["state"] = dict(normalized)
+    return normalized
+
+
+def update_local_panel_state(state):
+    normalized = normalize_panel_state(state)
+    with state_lock:
+        visits = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
+        visits.setdefault("daily", {})
+        visits["total_visits"] = max(int(visits.get("total_visits", 0) or 0), normalized["total_visits"])
+        visits["total_accounts"] = max(int(visits.get("total_accounts", 0) or 0), normalized["total_accounts"])
+        save_json(VISITS_FILE, visits)
+        save_json(CHAT_FILE, {"messages": normalized["messages"]})
+    return cache_panel_state(normalized)
+
+
+def load_remote_panel_state(force=False):
+    backend = primary_panel_backend()
+    if not backend:
+        return None
+    now = time.time()
+    with panel_state_lock:
+        cached = panel_state_cache.get("state")
+        loaded_at = float(panel_state_cache.get("loaded_at", 0.0) or 0.0)
+        if cached and not force and now - loaded_at < REMOTE_PANEL_STATE_CACHE_TTL:
+            return dict(cached)
+    try:
+        data = backend_request_for(backend, "/panel-state", payload=None, method="GET")
+    except Exception:
+        with panel_state_lock:
+            cached = panel_state_cache.get("state")
+            return dict(cached) if cached else None
+    state = normalize_panel_state(data.get("state", data) if isinstance(data, dict) else {})
+    update_local_panel_state(state)
+    return state
+
+
+def mutate_remote_panel_state(path, payload=None):
+    backend = primary_panel_backend()
+    if not backend:
+        return None
+    try:
+        data = backend_request_for(backend, path, payload=payload or {}, method="POST")
+    except Exception:
+        return None
+    state = normalize_panel_state(data.get("state", data) if isinstance(data, dict) else {})
+    update_local_panel_state(state)
+    return state
+
+
+def load_backend_summary_counters(force=False):
+    if not backend_configured():
+        return {"online_users": 0, "total_accounts": 0}
+    now = time.time()
+    with backend_summary_lock:
+        cached = backend_summary_cache.get("counters")
+        loaded_at = float(backend_summary_cache.get("loaded_at", 0.0) or 0.0)
+        if cached and not force and now - loaded_at < BACKEND_SUMMARY_CACHE_TTL:
+            return dict(cached)
+    counters = {"online_users": 0, "total_accounts": 0}
+    successful = False
+    for backend in load_backends():
+        try:
+            data = backend_request_for(backend, "/status", payload=None, method="GET")
+            extracted = extract_backend_status_counters(data)
+            counters["online_users"] += extracted["online_users"]
+            counters["total_accounts"] += extracted["total_accounts"]
+            successful = True
+        except Exception:
+            continue
+    if successful:
+        with backend_summary_lock:
+            backend_summary_cache["loaded_at"] = time.time()
+            backend_summary_cache["counters"] = dict(counters)
+        return counters
+    with backend_summary_lock:
+        cached = backend_summary_cache.get("counters")
+        return dict(cached) if cached else counters
 
 
 def default_backend_id():
@@ -842,12 +1037,16 @@ def load_visits():
     data.setdefault("total_visits", 0)
     data.setdefault("total_accounts", 0)
     data.setdefault("daily", {})
+    remote_state = load_remote_panel_state()
+    if remote_state:
+        data["total_visits"] = max(int(data.get("total_visits", 0) or 0), int(remote_state.get("total_visits", 0) or 0))
+        data["total_accounts"] = max(int(data.get("total_accounts", 0) or 0), int(remote_state.get("total_accounts", 0) or 0))
     return data
 
 
 def bump_visit_count():
     with state_lock:
-        data = load_visits()
+        data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
         today = _ph_date()
         data["total_visits"] += 1
         day_bucket = data["daily"].setdefault(today, {"visits": 0})
@@ -855,16 +1054,30 @@ def bump_visit_count():
         keys = sorted(data["daily"].keys())[-14:]
         data["daily"] = {key: data["daily"][key] for key in keys}
         save_json(VISITS_FILE, data)
-        return data
+    remote_state = mutate_remote_panel_state("/panel-state/visit", {})
+    if remote_state:
+        with state_lock:
+            data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
+            data.setdefault("daily", {})
+            data["total_visits"] = max(int(data.get("total_visits", 0) or 0), int(remote_state.get("total_visits", 0) or 0))
+            save_json(VISITS_FILE, data)
+    return load_visits()
 
 
 def increment_total_accounts():
     with state_lock:
-        data = load_visits()
+        data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
         current_total = int(data.get("total_accounts", 0) or 0)
         data["total_accounts"] = max(current_total + 1, get_total_daily_created_count())
         save_json(VISITS_FILE, data)
-        return data["total_accounts"]
+    remote_state = mutate_remote_panel_state("/panel-state/account", {"amount": 1})
+    if remote_state:
+        with state_lock:
+            data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
+            data["total_accounts"] = max(int(data.get("total_accounts", 0) or 0), int(remote_state.get("total_accounts", 0) or 0))
+            save_json(VISITS_FILE, data)
+            return data["total_accounts"]
+    return load_visits()["total_accounts"]
 
 
 def load_create_cooldowns():
@@ -925,9 +1138,11 @@ def format_cooldown_label(seconds):
 
 
 def load_chat_messages():
+    remote_state = load_remote_panel_state()
+    if remote_state:
+        return list(remote_state.get("messages", []))
     data = load_json(CHAT_FILE, {"messages": []})
-    messages = data.get("messages", [])
-    return messages if isinstance(messages, list) else []
+    return normalize_panel_messages(data.get("messages", []))
 
 
 def add_chat_message(name, message):
@@ -935,13 +1150,18 @@ def add_chat_message(name, message):
     clean_message = (message or "").strip()[:500]
     if not clean_message:
         return
+    remote_state = mutate_remote_panel_state("/panel-state/chat", {"name": clean_name, "message": clean_message})
+    if remote_state:
+        return
     entry = {
-        "name": html.escape(clean_name),
-        "message": html.escape(clean_message),
+        "id": str(int(time.time() * 1000)),
+        "name": clean_name,
+        "message": clean_message,
         "time": (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S"),
     }
     with chat_lock:
-        messages = load_chat_messages()
+        data = load_json(CHAT_FILE, {"messages": []})
+        messages = normalize_panel_messages(data.get("messages", []))
         messages.append(entry)
         save_json(CHAT_FILE, {"messages": messages[-MAX_CHAT_MESSAGES:]})
 
@@ -1970,13 +2190,14 @@ def render_home():
   <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">0</div><div class="stat-label">Accounts Created</div></div></div>
 </div>
 <script>
-function renderChat(messages){const box=document.getElementById('public-chat-box');if(!box)return;box.innerHTML='';messages.forEach(m=>{const item=document.createElement('div');item.className='chat-message';item.innerHTML='<div class="chat-meta"><div class="chat-name">'+(m.name||'Anonymous')+'</div><div class="chat-time">'+(m.time||'')+'</div></div><div class="chat-text">'+(m.message||'')+'</div>';box.appendChild(item);});box.scrollTop=box.scrollHeight;}
-function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&j.messages)renderChat(j.messages);}).catch(()=>{});}
+let lastChatSignature='';const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
+function renderChat(messages){const box=document.getElementById('public-chat-box');if(!box)return;const safeMessages=Array.isArray(messages)?messages:[];const signature=JSON.stringify(safeMessages);if(signature===lastChatSignature)return;lastChatSignature=signature;const stickToBottom=box.scrollHeight-box.scrollTop-box.clientHeight<24;box.textContent='';safeMessages.forEach(m=>{const item=document.createElement('div');item.className='chat-message';const meta=document.createElement('div');meta.className='chat-meta';const name=document.createElement('div');name.className='chat-name';name.textContent=m&&m.name?m.name:'Anonymous';const time=document.createElement('div');time.className='chat-time';time.textContent=m&&m.time?m.time:'';meta.appendChild(name);meta.appendChild(time);const text=document.createElement('div');text.className='chat-text';text.textContent=m&&m.message?m.message:'';item.appendChild(meta);item.appendChild(text);box.appendChild(item);});if(stickToBottom||!safeMessages.length)box.scrollTop=box.scrollHeight;}
+function fetchChat(){fetch('/chat/messages?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.messages))renderChat(j.messages);}).catch(()=>{});}
 function sendPublicChat(e){e.preventDefault();let name=document.getElementById('chat-name').value||'';const message=document.getElementById('chat-message').value||'';name=name.replace(/[^A-Za-z]/g,'').slice(0,10);if(!message.trim())return;const body=new URLSearchParams();body.append('name',name);body.append('message',message);fetch('/chat/send',{method:'POST',body}).then(()=>{document.getElementById('chat-message').value='';fetchChat();}).catch(()=>{});}
-function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{document.getElementById('online-users').textContent=data.online_users;document.getElementById('total-visits').textContent=data.total_visits;document.getElementById('total-accounts').textContent=data.total_accounts;}).catch(()=>{});}
+function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;}).catch(()=>{});}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=data.text||'Alive';return;}node.classList.add('is-dead');if(text)text.textContent=(data&&data.text)||'Dead';}
 function updateServerHealth(){fetch('/main/server-health?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const statuses=(data&&data.statuses)||{};document.querySelectorAll('[data-server-health]').forEach(node=>{const backendId=node.getAttribute('data-backend-id')||'';applyServerHealth(node,statuses[backendId]||null);});}).catch(()=>{});}
-fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,3000);setInterval(updateMainStats,1000);setInterval(updateServerHealth,15000);
+fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,5000);setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
             visits=visits["total_visits"],
@@ -2599,20 +2820,9 @@ def status_full():
 @app.get("/main/stats")
 def main_stats():
     visits = load_visits()
-    online_users = 0
-    remote_total_accounts = 0
     total_accounts = max(int(visits.get("total_accounts", 0) or 0), get_total_daily_created_count())
-    if backend_configured():
-        for backend in load_backends():
-            try:
-                data = backend_request_for(backend, "/status", payload=None, method="GET")
-                counters = extract_backend_status_counters(data)
-                online_users += counters["online_users"]
-                remote_total_accounts += counters["total_accounts"]
-            except Exception:
-                continue
-    total_accounts = max(total_accounts, remote_total_accounts)
-    response = jsonify({"online_users": online_users, "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
+    counters = load_backend_summary_counters()
+    response = jsonify({"online_users": counters["online_users"], "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
