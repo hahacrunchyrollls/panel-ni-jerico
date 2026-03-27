@@ -58,7 +58,7 @@ STATUS_SERVICE_ORDER = [
 state_lock = threading.Lock()
 chat_lock = threading.Lock()
 traffic_lock = threading.Lock()
-last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0}
+last_traffic_snapshot = {"time": None, "rx": 0, "tx": 0, "source": None}
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("SESSION_SECRET") or secrets.token_hex(32)
@@ -921,20 +921,29 @@ def get_total_network_bytes():
     return rx_total, tx_total
 
 
-def get_status_payload():
-    if backend_configured():
-        try:
-            data = backend_request("/status", payload=None, method="GET")
-            if isinstance(data, dict) and data.get("ok") is True:
-                data["services"] = normalize_service_entries(data.get("services") or data.get("service_statuses") or [])
-                return data
-        except Exception:
-            pass
+def _coerce_non_negative_int(value):
+    try:
+        return max(int(value), 0)
+    except Exception:
+        return 0
+
+
+def _network_source_key():
+    backend = selected_backend()
+    if backend:
+        return "backend:" + str(backend.get("id") or backend.get("api_url") or "default")
+    return "local"
+
+
+def build_live_network_stats(net=None, source=None):
+    net = net if isinstance(net, dict) else {}
+    rx_total = _coerce_non_negative_int(net.get("rx_bytes", 0))
+    tx_total = _coerce_non_negative_int(net.get("tx_bytes", 0))
+    source_key = source or "local"
     now = time.time()
-    rx_total, tx_total = get_total_network_bytes()
     with traffic_lock:
         previous = dict(last_traffic_snapshot)
-        if previous["time"] is None:
+        if previous["time"] is None or previous.get("source") != source_key:
             rx_rate = tx_rate = 0
         else:
             delta = max(now - previous["time"], 0.001)
@@ -943,13 +952,28 @@ def get_status_payload():
         last_traffic_snapshot["time"] = now
         last_traffic_snapshot["rx"] = rx_total
         last_traffic_snapshot["tx"] = tx_total
+        last_traffic_snapshot["source"] = source_key
+    return {"rx_bytes": rx_total, "tx_bytes": tx_total, "rx_rate": rx_rate, "tx_rate": tx_rate}
+
+
+def get_status_payload():
+    if backend_configured():
+        try:
+            data = backend_request("/status", payload=None, method="GET")
+            if isinstance(data, dict) and data.get("ok") is True:
+                data["services"] = normalize_service_entries(data.get("services") or data.get("service_statuses") or [])
+                data["net"] = build_live_network_stats(data.get("net"), source=_network_source_key())
+                return data
+        except Exception:
+            pass
+    rx_total, tx_total = get_total_network_bytes()
     services = [[name, False] for name in STATUS_SERVICE_ORDER]
     return {
         "cpu": get_cpu_percent(),
         "load": get_load_average(),
         "mem": get_memory_stats(),
         "storage": get_storage_stats(),
-        "net": {"rx_bytes": rx_total, "tx_bytes": tx_total, "rx_rate": rx_rate, "tx_rate": tx_rate},
+        "net": build_live_network_stats({"rx_bytes": rx_total, "tx_bytes": tx_total}, source="local"),
         "services": services,
     }
 
@@ -960,7 +984,7 @@ BASE_TEMPLATE = """
 <head>
 <title>{{ title }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_fuji.png">
+<link rel="icon" type="image/png" href="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
