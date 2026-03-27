@@ -717,11 +717,17 @@ def get_daily_created_count(service=None, backend_id=None):
     return _sum_service_counts(counts)
 
 
-def get_total_daily_created_count():
+def get_total_daily_created_count(service=None):
     data = load_counts()
     total = 0
     for counts in data.get("counts", {}).values():
-        total += _sum_service_counts(counts)
+        if service:
+            try:
+                total += int((counts or {}).get(service, 0))
+            except Exception:
+                continue
+        else:
+            total += _sum_service_counts(counts)
     return total
 
 
@@ -1700,7 +1706,7 @@ def build_service_cards():
     daily_limit = get_daily_account_limit()
     enabled = backend_configured()
     for service, label, icon in SERVICE_META:
-        created = get_daily_created_count(service)
+        created = get_total_daily_created_count(service)
         anchor_attr = "" if enabled else 'onclick="return false;"'
         button_attr = "" if enabled else "disabled"
         style_attr = "width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;"
@@ -2408,8 +2414,8 @@ def render_admin(success=None, error=None):
       <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
     <div class="status-grid-2" style="margin-top:1.2rem;">
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This limit is shared across all servers for the same service each day.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the selected service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form></div>
     </div>
     {bypass_editor_html}
     <div style="margin-top:1.2rem;"><div style="font-weight:700;margin-bottom:.8rem;">Recent Audit</div>{event_cards}</div>
@@ -2624,8 +2630,8 @@ def submit_service_request(service):
             error=f"Please wait {format_cooldown_label(cooldown_remaining)} before creating another account.",
             values=values,
         )
-    if get_daily_created_count(service) >= get_daily_account_limit():
-        return render_service_form(service, error="Daily account creation limit reached for this service.", values=values)
+    if get_total_daily_created_count(service) >= get_daily_account_limit():
+        return render_service_form(service, error="Daily account creation limit reached for this service across all servers.", values=values)
     payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
     if service != "vless":
         payload["password"] = values.get("password", "")
