@@ -77,27 +77,41 @@ def ensure_state_dir():
 
 def load_json(path: Path, default):
     ensure_state_dir()
-    try:
-        with path.open("r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except Exception:
-        return _clone(default)
+    candidates = [path, path.with_suffix(path.suffix + ".tmp")]
+    ranked = []
+    for candidate in candidates:
+        try:
+            ranked.append((candidate.stat().st_mtime, candidate))
+        except Exception:
+            continue
+    for _, candidate in sorted(ranked, key=lambda item: item[0], reverse=True):
+        try:
+            with candidate.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            continue
+    return _clone(default)
 
 
 def save_json(path: Path, payload):
     ensure_state_dir()
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
+        raw = json.dumps(payload)
         with tmp.open("w", encoding="utf-8") as handle:
-            json.dump(payload, handle)
-        tmp.replace(path)
+            handle.write(raw)
+        try:
+            os.replace(tmp, path)
+        except Exception:
+            with path.open("w", encoding="utf-8") as handle:
+                handle.write(raw)
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except Exception:
+                pass
         return True
     except Exception:
-        try:
-            if tmp.exists():
-                tmp.unlink()
-        except Exception:
-            pass
         return False
 
 
@@ -395,13 +409,36 @@ def load_counts():
     return data
 
 
+def _sum_service_counts(counts):
+    if not isinstance(counts, dict):
+        return 0
+    total = 0
+    for value in counts.values():
+        try:
+            total += int(value)
+        except Exception:
+            continue
+    return total
+
+
 def get_daily_created_count(service=None, backend_id=None):
     data = load_counts()
     backend_id = backend_id or selected_backend_id() or "default"
     counts = data.get("counts", {}).get(backend_id, {})
     if service:
-        return int(counts.get(service, 0))
-    return sum(int(value) for value in counts.values())
+        try:
+            return int(counts.get(service, 0))
+        except Exception:
+            return 0
+    return _sum_service_counts(counts)
+
+
+def get_total_daily_created_count():
+    data = load_counts()
+    total = 0
+    for counts in data.get("counts", {}).values():
+        total += _sum_service_counts(counts)
+    return total
 
 
 def increment_daily_created_count(service, backend_id=None):
@@ -438,7 +475,8 @@ def bump_visit_count():
 def increment_total_accounts():
     with state_lock:
         data = load_visits()
-        data["total_accounts"] += 1
+        current_total = int(data.get("total_accounts", 0) or 0)
+        data["total_accounts"] = max(current_total + 1, get_total_daily_created_count())
         save_json(VISITS_FILE, data)
         return data["total_accounts"]
 
@@ -446,38 +484,47 @@ def increment_total_accounts():
 def load_create_cooldowns():
     data = load_json(COOLDOWN_FILE, {"ips": {}})
     ips = data.get("ips", {})
-    data["ips"] = ips if isinstance(ips, dict) else {}
+    normalized = {}
+    if isinstance(ips, dict):
+        for ip_address, services in ips.items():
+            normalized[ip_address] = services if isinstance(services, dict) else {}
+    data["ips"] = normalized
     return data
 
 
-def get_create_cooldown_remaining(ip_address):
-    if not ip_address:
+def get_create_cooldown_remaining(ip_address, service):
+    if not ip_address or not service:
         return 0
     now = int(time.time())
     data = load_create_cooldowns()
     try:
-        until = int(data.get("ips", {}).get(ip_address, 0))
+        until = int(data.get("ips", {}).get(ip_address, {}).get(service, 0))
     except Exception:
         until = 0
     return max(until - now, 0)
 
 
-def set_create_cooldown(ip_address, seconds=CREATE_COOLDOWN_SECONDS):
-    if not ip_address:
+def set_create_cooldown(ip_address, service, seconds=CREATE_COOLDOWN_SECONDS):
+    if not ip_address or not service:
         return
     now = int(time.time())
     expires_at = now + int(seconds)
     with state_lock:
         data = load_create_cooldowns()
         cleaned = {}
-        for key, value in data.get("ips", {}).items():
-            try:
-                expiry = int(value)
-            except Exception:
-                continue
-            if expiry > now:
-                cleaned[key] = expiry
-        cleaned[ip_address] = expires_at
+        for key, service_map in data.get("ips", {}).items():
+            active = {}
+            if isinstance(service_map, dict):
+                for protocol, value in service_map.items():
+                    try:
+                        expiry = int(value)
+                    except Exception:
+                        continue
+                    if expiry > now:
+                        active[protocol] = expiry
+            if active:
+                cleaned[key] = active
+        cleaned.setdefault(ip_address, {})[service] = expires_at
         save_json(COOLDOWN_FILE, {"ips": cleaned})
 
 
@@ -917,6 +964,7 @@ BASE_TEMPLATE = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
 <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/shoelace.js"></script>
 <style>
 :root{--primary-color:#7c1027;--primary-hover:#5d0919;--accent-color:#a91e3c;--accent-hover:#c13350;--bg-gradient:linear-gradient(180deg,#fffefb 0%,#f8ebef 48%,#fff8fa 100%);--card-bg:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);--card-border:#5d0919;--card-shadow:8px 8px 0 rgba(93,9,25,.88);--soft-shadow:0 20px 42px rgba(93,9,25,.14);--success:#8f1730;--error:#391019;--warning:#b54e61;--text-primary:#381018;--text-secondary:#6a2030;--text-muted:#955663;--surface:#ffffff;--surface-alt:#fff3f6;--paper:#fffaf8;--ink:#1f060c;--border-radius:18px;--transition:all .22s ease;}
@@ -1583,12 +1631,11 @@ def status_full():
 def main_stats():
     visits = load_visits()
     online_users = 0
-    total_accounts = visits.get("total_accounts", 0)
+    total_accounts = max(int(visits.get("total_accounts", 0) or 0), get_total_daily_created_count())
     if backend_configured():
         try:
             data = backend_request("/status", payload=None, method="GET")
             online_users = int(data.get("online_users", 0) or 0)
-            total_accounts = int(data.get("total_accounts", total_accounts) or total_accounts)
         except Exception:
             pass
     response = jsonify({"online_users": online_users, "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
@@ -1686,7 +1733,7 @@ def submit_service_request(service):
     if not backend_configured():
         return render_unavailable(service_label(service))
     client_ip = get_request_ip()
-    cooldown_remaining = get_create_cooldown_remaining(client_ip)
+    cooldown_remaining = get_create_cooldown_remaining(client_ip, service)
     if cooldown_remaining > 0:
         return render_service_form(
             service,
@@ -1703,7 +1750,7 @@ def submit_service_request(service):
     try:
         data = backend_request(f"/create/{service}", payload=payload, method="POST")
         result = data.get("result", {}) if isinstance(data, dict) else {}
-        set_create_cooldown(client_ip)
+        set_create_cooldown(client_ip, service)
         increment_daily_created_count(service)
         increment_total_accounts()
         return render_service_result(service, result)
