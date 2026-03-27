@@ -1,3 +1,4 @@
+import base64
 import copy
 import html
 import json
@@ -12,6 +13,7 @@ import urllib.parse
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, has_request_context, redirect, render_template_string, request, session
@@ -647,6 +649,32 @@ def backend_error_message(exc):
         return "Backend request failed."
 
 
+def guess_image_mime(url):
+    lower = (url or "").lower()
+    if lower.endswith(".png"):
+        return "image/png"
+    if lower.endswith(".jpg") or lower.endswith(".jpeg"):
+        return "image/jpeg"
+    if lower.endswith(".webp"):
+        return "image/webp"
+    if lower.endswith(".gif"):
+        return "image/gif"
+    return "application/octet-stream"
+
+
+@lru_cache(maxsize=1)
+def favicon_data_uri():
+    try:
+        req = urllib.request.Request(FAVICON_SOURCE_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            payload = response.read()
+            mime = response.headers.get_content_type() or guess_image_mime(FAVICON_SOURCE_URL)
+        encoded = base64.b64encode(payload).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+    except Exception:
+        return ""
+
+
 def strip_ansi(text):
     return re.sub(r"\x1B\[[0-?]*[ -/]*[@-~]", "", str(text or ""))
 
@@ -1267,6 +1295,7 @@ def navbar_html():
   </a>
   <div class="navbar-nav">
     <a href="/main/" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
+    <a href="/services/" class="nav-link"><i class="fa-solid fa-layer-group"></i> Service</a>
     <a href="/status/" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>
     <a href="/hostname-to-ip/" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
@@ -1276,6 +1305,7 @@ def navbar_html():
   <button class="burger-btn" id="navbar-burger" type="button"><i class="fa-solid fa-bars"></i></button>
   <div class="mobile-menu" id="mobile-menu">
     <a href="/main/"><i class="fa-solid fa-house"></i> Home</a>
+    <a href="/services/"><i class="fa-solid fa-layer-group"></i> Service</a>
     <a href="/status/"><i class="fa-solid fa-server"></i> Status</a>
     <a href="/hostname-to-ip/"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup/"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
@@ -1290,13 +1320,10 @@ def render_page(title, content):
     return render_template_string(BASE_TEMPLATE, title=title, navbar=Markup(navbar_html()), content=Markup(content))
 
 
-def render_home():
-    visits = bump_visit_count()
+def build_service_cards():
     cards = []
     daily_limit = get_daily_account_limit()
     enabled = backend_configured()
-    backends = load_backends()
-    current_backend = selected_backend()
     for service, label, icon in SERVICE_META:
         created = get_daily_created_count(service)
         anchor_attr = "" if enabled else 'onclick="return false;"'
@@ -1315,49 +1342,63 @@ def render_home():
   </a>
 </div>"""
         )
-    location_html = ""
-    try:
-        data = backend_location(current_backend)
-        country = data.get("country", "Unknown")
-        code = data.get("countryCode", "")
-        city = data.get("city", "")
-        if country != "Unknown":
-            flag = f'https://flagcdn.com/48x36/{code.lower()}.png' if code else ""
-            location_html = f"""
-<div style="text-align:center;margin-bottom:1.2em;">
-  {'<img src="' + flag + '" alt="' + html.escape(code) + ' flag" style="height:2.2em;vertical-align:middle;border-radius:10px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);margin-bottom:0.5em;margin-top:1em;">' if flag else ''}
-  <div style="font-size:1.1em;color:var(--text-secondary);font-weight:600;margin-top:0.5em;">{html.escape(country)}{', ' + html.escape(city) if city else ''}</div>
-</div>"""
-    except Exception:
-        pass
-    selector_html = ""
-    current_server_note = ""
+    return "".join(cards)
+
+
+def render_selected_server_note(change_href="/main/", include_change=True, margin_style="margin:0 auto 1.35rem auto;"):
+    current_backend = selected_backend()
+    if not current_backend:
+        return ""
+    backend_geo = backend_location(current_backend)
+    location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
+    change_link = ""
+    if include_change:
+        change_link = f'<a href="{html.escape(change_href)}" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
+    return (
+        f'<div class="server-current-pill" style="{margin_style}max-width:760px;">'
+        '<span class="server-current-dot"></span>'
+        '<span>Selected server</span>'
+        f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
+        + (
+            f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
+            if location_bits
+            else ""
+        )
+        + change_link
+        + "</div>"
+    )
+
+
+def render_server_selector(redirect_to="/services/"):
+    backends = load_backends()
+    if not backends:
+        return ""
     current_id = selected_backend_id()
-    if len(backends) > 1:
-        server_cards = []
-        for backend in backends:
-            backend_geo = backend_location(backend)
-            country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
-            city = backend.get("city") or backend_geo.get("city") or ""
-            country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
-            flag_html = (
-                f'<img class="server-flag" src="https://flagcdn.com/48x36/{country_code.lower()}.png" alt="{html.escape(country_code)} flag">'
-                if country_code
-                else '<span class="server-flag-fallback"><i class="fa-solid fa-globe"></i></span>'
-            )
-            is_active = backend["id"] == current_id
-            active_class = " is-active" if is_active else ""
-            badge_html = (
-                '<span class="server-badge active"><i class="fa-solid fa-circle-check"></i> Active</span>'
-                if is_active
-                else '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Switch</span>'
-            )
-            location_bits = [bit for bit in [city, country] if bit]
-            location_label = ", ".join(location_bits) if location_bits else backend["label"]
-            server_cards.append(
-                f"""
+    server_cards = []
+    for backend in backends:
+        backend_geo = backend_location(backend)
+        country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
+        city = backend.get("city") or backend_geo.get("city") or ""
+        country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
+        flag_html = (
+            f'<img class="server-flag" src="https://flagcdn.com/48x36/{country_code.lower()}.png" alt="{html.escape(country_code)} flag">'
+            if country_code
+            else '<span class="server-flag-fallback"><i class="fa-solid fa-globe"></i></span>'
+        )
+        is_active = backend["id"] == current_id
+        active_class = " is-active" if is_active else ""
+        badge_html = (
+            '<span class="server-badge active"><i class="fa-solid fa-circle-check"></i> Active</span>'
+            if is_active
+            else '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Select</span>'
+        )
+        location_bits = [bit for bit in [city, country] if bit]
+        location_label = ", ".join(location_bits) if location_bits else backend["label"]
+        server_cards.append(
+            f"""
       <form method="POST" action="/select-server/" class="server-card-form">
         <input type="hidden" name="backend_id" value="{html.escape(backend['id'])}">
+        <input type="hidden" name="redirect_to" value="{html.escape(redirect_to)}">
         <button type="submit" class="server-card-button{active_class}">
           <div class="server-card-main">
             {flag_html}
@@ -1372,44 +1413,45 @@ def render_home():
           <div class="server-card-host"><i class="fa-solid fa-server" style="color:var(--accent-color);"></i><span>{html.escape(backend_host(backend))}</span></div>
         </button>
       </form>"""
-            )
-        selector_html = f"""
+        )
+    return f"""
     <div class="server-selector">
       <div class="server-selector-head">
         <div>
           <div class="server-selector-kicker"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</div>
+          <div class="server-selector-title">Pick a server first</div>
+          <div class="server-selector-note">After you choose a server, we will take you to the Service page to pick a protocol.</div>
         </div>
       </div>
       <div class="server-selector-grid">{''.join(server_cards)}</div>
     </div>"""
-    if current_backend:
-        backend_geo = backend_location(current_backend)
-        location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
-        current_server_note = (
-            '<div class="server-current-pill">'
-            '<span class="server-current-dot"></span>'
-            '<span>Selected server</span>'
-            f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
-            + (
-                f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
-                if location_bits
-                else ""
-            )
-            + "</div>"
-        )
+
+
+def render_home():
+    visits = bump_visit_count()
+    enabled = backend_configured()
+    selector_html = render_server_selector("/services/")
+    current_server_note = render_selected_server_note(include_change=False)
+    continue_html = ""
+    if enabled and selected_backend():
+        continue_html = """
+    <div style="margin:1.5rem auto 0 auto;max-width:420px;">
+      <a href="/services/" style="text-decoration:none;display:block;">
+        <button style="width:100%;"><i class="fa-solid fa-layer-group"></i> Continue to Service</button>
+      </a>
+    </div>"""
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
     return render_page(
         "FUJI PANEL",
         render_template_string(
             """
-{{ location_html|safe }}
 <div class="container">
   <div class="neo-box" style="text-align:center;">
     <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;">
-      <i class="fa-solid fa-user-plus" style="font-size:1.8em;color:var(--accent-color);"></i>
-      <h2 class="section-title" style="margin:0;">CREATE ACCOUNT</h2>
+      <i class="fa-solid fa-earth-asia" style="font-size:1.8em;color:var(--accent-color);"></i>
+      <h2 class="section-title" style="margin:0;">CHOOSE SERVER</h2>
     </div>
-    <style>.create-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 auto;max-width:640px}.create-cell a{text-decoration:none;display:block}@media (max-width:480px){.create-grid{grid-template-columns:1fr}}</style>
+    <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.6rem;">Select your server first. Protocol selection now lives on the Service page.</div>
     {{ selector_html|safe }}
     {{ current_server_note|safe }}
     {% if page_error %}
@@ -1424,7 +1466,7 @@ def render_home():
       <div>Set <code>SERVER_BACKENDS_JSON</code>, numbered <code>SERVER_API_URL_1</code> / <code>SERVER_API_TOKEN_1</code> pairs, or <code>SERVER_API_URL</code> / <code>SERVER_API_TOKEN</code> in Vercel to enable account creation.</div>
     </div>
     {% endif %}
-    <div style="margin:2rem 0;"><div class="create-grid">{{ cards|safe }}</div></div>
+    {{ continue_html|safe }}
   </div>
 </div>
 <div class="public-chat">
@@ -1448,13 +1490,48 @@ function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'})
 fetchChat();updateMainStats();setInterval(fetchChat,3000);setInterval(updateMainStats,1000);
 </script>
 """,
-            location_html=Markup(location_html),
-            cards=Markup("".join(cards)),
             visits=visits["total_visits"],
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
+            continue_html=Markup(continue_html),
             page_error=page_error,
             backend_ready=enabled,
+        ),
+    )
+
+
+def render_services():
+    if not backend_configured():
+        return render_unavailable("Service")
+    current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
+    cards = build_service_cards()
+    page_error = (request.args.get("error", "") if has_request_context() else "").strip()
+    return render_page(
+        "Service",
+        render_template_string(
+            """
+<div class="container">
+  <div class="neo-box" style="text-align:center;">
+    <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;">
+      <i class="fa-solid fa-layer-group" style="font-size:1.8em;color:var(--accent-color);"></i>
+      <h2 class="section-title" style="margin:0;">SERVICE</h2>
+    </div>
+    <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.6rem;">Choose a protocol or service for the selected server.</div>
+    <style>.create-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 auto;max-width:640px}.create-cell a{text-decoration:none;display:block}@media (max-width:480px){.create-grid{grid-template-columns:1fr}}</style>
+    {{ current_server_note|safe }}
+    {% if page_error %}
+    <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
+      <i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i>
+      <div>{{ page_error }}</div>
+    </div>
+    {% endif %}
+    <div style="margin:2rem 0;"><div class="create-grid">{{ cards|safe }}</div></div>
+  </div>
+</div>
+""",
+            current_server_note=Markup(current_server_note),
+            cards=Markup(cards),
+            page_error=page_error,
         ),
     )
 
@@ -1515,24 +1592,7 @@ def render_service_form(service, error=None, values=None):
     label = service_label(service)
     icon = service_icon(service)
     days = get_create_account_expiry(service)
-    current_backend = selected_backend()
-    current_backend_note = ""
-    if current_backend:
-        backend_geo = backend_location(current_backend)
-        location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
-        current_backend_note = (
-            '<div class="server-current-pill" style="margin:-.8rem auto 1.4rem auto;max-width:520px;">'
-            '<span class="server-current-dot"></span>'
-            '<span>Selected server</span>'
-            f'<span class="server-current-name">{html.escape(current_backend["label"])}</span>'
-            + (
-                f'<span class="server-current-meta">{html.escape(", ".join(location_bits))}</span>'
-                if location_bits
-                else ""
-            )
-            + '<a href="/main/" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
-            + "</div>"
-        )
+    current_backend_note = render_selected_server_note(change_href="/main/", include_change=True, margin_style="margin:-.8rem auto 1.4rem auto;")
     username_value = html.escape(values.get("username", ""))
     password_value = html.escape(values.get("password", ""))
     bypass_value = values.get("bypass_option", "")
@@ -1596,8 +1656,8 @@ def render_service_form(service, error=None, values=None):
     }}
   }})();
   </script>
-  <a href="/main/" style="display:block;margin-top:1.5rem;text-decoration:none;">
-    <button style="width:100%;max-width:400px;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
+  <a href="/services/" style="display:block;margin-top:1.5rem;text-decoration:none;">
+    <button style="width:100%;max-width:400px;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Service</button>
   </a>
 </div></div>"""
     return render_page(label, content)
@@ -1714,8 +1774,8 @@ def render_service_result(service, result):
   }}
   </script>"""
     content += """
-  <a href="/main/" style="display:block;margin-top:1rem;text-decoration:none;">
-    <button style="width:100%;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button>
+  <a href="/services/" style="display:block;margin-top:1rem;text-decoration:none;">
+    <button style="width:100%;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Service</button>
   </a>
 </div></div>"""
     return render_page(label, content)
@@ -1820,8 +1880,10 @@ hostname_page_html, ip_page_html = render_lookup_pages()
 
 @app.get("/site-icon.svg")
 def site_icon():
-    source = html.escape(FAVICON_SOURCE_URL, quote=True)
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+    source = favicon_data_uri()
+    if source:
+        source = html.escape(source, quote=True)
+        svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
     <clipPath id="siteIconClip">
       <circle cx="32" cy="32" r="30"/>
@@ -1830,6 +1892,17 @@ def site_icon():
   <rect width="64" height="64" rx="32" fill="#ffffff"/>
   <image href="{source}" width="64" height="64" preserveAspectRatio="xMidYMid slice" clip-path="url(#siteIconClip)"/>
   <circle cx="32" cy="32" r="30" fill="none" stroke="#5d0919" stroke-width="2"/>
+</svg>"""
+    else:
+        svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="siteIconBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff6f8"/>
+      <stop offset="100%" stop-color="#f7d7de"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#siteIconBg)" stroke="#5d0919" stroke-width="2"/>
+  <text x="32" y="39" text-anchor="middle" font-size="26" font-weight="700" font-family="Arial, sans-serif" fill="#7c1027">F</text>
 </svg>"""
     response = Response(svg, mimetype="image/svg+xml")
     response.headers["Cache-Control"] = "public, max-age=3600"
@@ -1845,6 +1918,12 @@ def favicon_legacy():
 @app.get("/main/")
 def main_page():
     return render_home()
+
+
+@app.get("/service/")
+@app.get("/services/")
+def services_page():
+    return render_services()
 
 
 @app.get("/status/")
@@ -1955,8 +2034,11 @@ def readme_page():
 @app.post("/select-server/")
 def select_server():
     backend_id = (request.form.get("backend_id") or "").strip()
+    redirect_to = (request.form.get("redirect_to") or "/services/").strip()
+    if not redirect_to.startswith("/") or redirect_to.startswith("//"):
+        redirect_to = "/services/"
     if set_selected_backend(backend_id):
-        return redirect("/main/", code=303)
+        return redirect(redirect_to, code=303)
     return redirect("/main/?error=" + urllib.parse.quote("Invalid server selection."), code=303)
 
 
