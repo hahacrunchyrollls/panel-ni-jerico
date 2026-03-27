@@ -1143,7 +1143,6 @@ BASE_TEMPLATE = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
 <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/shoelace.js"></script>
 <style>
 :root{--primary-color:#7c1027;--primary-hover:#5d0919;--accent-color:#a91e3c;--accent-hover:#c13350;--bg-gradient:linear-gradient(180deg,#fffefb 0%,#f8ebef 48%,#fff8fa 100%);--card-bg:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);--card-border:#5d0919;--card-shadow:8px 8px 0 rgba(93,9,25,.88);--soft-shadow:0 20px 42px rgba(93,9,25,.14);--success:#8f1730;--error:#391019;--warning:#b54e61;--text-primary:#381018;--text-secondary:#6a2030;--text-muted:#955663;--surface:#ffffff;--surface-alt:#fff3f6;--paper:#fffaf8;--ink:#1f060c;--border-radius:18px;--transition:all .22s ease;}
@@ -1208,6 +1207,8 @@ button.server-card-button.is-active .server-badge{background:#fff;color:var(--pr
 .server-current-dot{height:10px;width:10px;border-radius:50%;background:var(--success);box-shadow:0 0 0 6px rgba(143,23,48,.12);}
 .server-current-name{color:var(--primary-color);font-weight:800;font-family:'Bangers','Comic Neue',cursive;letter-spacing:.04em;}
 .server-current-meta{color:var(--text-muted);}
+.global-ad-wrap{width:min(100% - 2rem,960px);margin:1.25rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
+.global-ad-shell{background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:18px;box-shadow:4px 4px 0 rgba(93,9,25,.16);padding:12px;overflow:hidden;}
 .public-chat{margin-top:1.5rem;display:flex;flex-direction:column;gap:8px;align-items:center}.chat-box{width:100%;max-width:400px;background:linear-gradient(180deg,#ffffff 0%,#fff5f7 100%);border-radius:16px;padding:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);max-height:320px;overflow:auto;font-size:.98rem}.chat-message{padding:8px;border-radius:12px;margin-bottom:8px;background:rgba(124,16,39,.05);border:2px dashed rgba(124,16,39,.24);display:block}.chat-meta{display:flex;align-items:center;gap:8px}.chat-name{font-weight:700;color:var(--primary-color)}.chat-time{color:var(--text-muted);font-size:.8rem;margin-left:auto}.chat-text{margin-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.chat-form{width:100%;max-width:400px;display:flex;gap:8px;align-items:center;flex-direction:column}.chat-form input[type="text"]{width:100%}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
@@ -1218,7 +1219,33 @@ button.server-card-button.is-active .server-badge{background:#fff;color:var(--pr
 <body>
 <div class="loading-overlay" id="loadingOverlay"><div class="loading-spinner"></div><div class="loading-text">Creating your account...</div></div>
 {{ navbar|safe }}
+<div class="global-ad-wrap">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
+  <div class="global-ad-shell">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="ca-pub-2897141099701828"
+         data-ad-slot="8320243336"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+  </div>
+  <script>
+       (adsbygoogle = window.adsbygoogle || []).push({});
+  </script>
+</div>
 {{ content|safe }}
+<div class="global-ad-wrap">
+  <div class="global-ad-shell">
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-format="autorelaxed"
+         data-ad-client="ca-pub-2897141099701828"
+         data-ad-slot="7495347879"></ins>
+  </div>
+  <script>
+       (adsbygoogle = window.adsbygoogle || []).push({});
+  </script>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded',function(){const p=window.location.pathname;document.querySelectorAll('.nav-link').forEach(a=>{const h=a.getAttribute('href');if(p===h||(p==='/'&&h==='/main/'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
 </script>
