@@ -137,23 +137,32 @@ def current_host():
     return host.split(":")[0]
 
 
+def env_first(*names):
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def configured_server_api_url():
-    return os.environ.get("SERVER_API_URL", "").strip().rstrip("/")
+    return env_first("SERVER_API_URL", "SERVER_API_UR", "SERVER_URL").rstrip("/")
 
 
 def configured_server_api_token():
-    return os.environ.get("SERVER_API_TOKEN", "").strip()
+    return env_first("SERVER_API_TOKEN", "API_TOKEN")
 
 
 def load_numbered_backends():
     indexed = []
-    for key, raw_value in os.environ.items():
-        match = re.fullmatch(r"SERVER_API_URL_(\d+)", key)
-        if not match:
-            continue
-        index = match.group(1)
-        api_url = str(raw_value or "").strip().rstrip("/")
-        api_token = os.environ.get(f"SERVER_API_TOKEN_{index}", "").strip()
+    indices = set()
+    for key in os.environ:
+        match = re.fullmatch(r"SERVER_API_URL_(\d+)", key) or re.fullmatch(r"SERVER_API_UR_(\d+)", key) or re.fullmatch(r"SERVER_URL_(\d+)", key)
+        if match:
+            indices.add(match.group(1))
+    for index in sorted(indices, key=int):
+        api_url = env_first(f"SERVER_API_URL_{index}", f"SERVER_API_UR_{index}", f"SERVER_URL_{index}").rstrip("/")
+        api_token = env_first(f"SERVER_API_TOKEN_{index}", f"API_TOKEN_{index}")
         if not api_url or not api_token:
             continue
         backend_id = os.environ.get(f"SERVER_ID_{index}", "").strip() or f"server_{index}"
@@ -958,18 +967,157 @@ def build_live_network_stats(net=None, source=None):
     return {"rx_bytes": rx_total, "tx_bytes": tx_total, "rx_rate": rx_rate, "tx_rate": tx_rate}
 
 
+def _coerce_number(value, default=0):
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _pick_first(mapping, *keys):
+    if not isinstance(mapping, dict):
+        return None
+    for key in keys:
+        if key in mapping and mapping.get(key) not in (None, ""):
+            return mapping.get(key)
+    return None
+
+
+def _normalize_load_value(value):
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in list(value)[:3]]
+    if isinstance(value, str):
+        parts = [part.strip() for part in re.split(r"[,\s]+", value.strip()) if part.strip()]
+        if parts:
+            return parts[:3]
+    return get_load_average()
+
+
+def _normalize_metric_block(payload, block_keys, field_aliases):
+    result = {field: 0 for field in field_aliases}
+    block = {}
+    for key in block_keys:
+        value = payload.get(key) if isinstance(payload, dict) else None
+        if isinstance(value, dict):
+            block = value
+            break
+    for field, aliases in field_aliases.items():
+        result[field] = _coerce_non_negative_int(_pick_first(block, *aliases))
+        if result[field] == 0 and isinstance(payload, dict):
+            result[field] = _coerce_non_negative_int(_pick_first(payload, *aliases))
+    return result
+
+
+def _status_payload_candidates(payload):
+    candidates = []
+    queue = [payload]
+    seen = set()
+    while queue:
+        current = queue.pop(0)
+        if not isinstance(current, dict):
+            continue
+        marker = id(current)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        candidates.append(current)
+        for key in ("data", "result", "payload", "status", "server", "stats"):
+            nested = current.get(key)
+            if isinstance(nested, dict):
+                queue.append(nested)
+    return candidates
+
+
+def normalize_backend_status_payload(payload):
+    for candidate in _status_payload_candidates(payload):
+        services = _pick_first(candidate, "services", "service_statuses", "serviceStatuses", "service_status", "serviceStatus", "statuses")
+        net = _normalize_metric_block(
+            candidate,
+            ("net", "network"),
+            {
+                "rx_bytes": ("rx_bytes", "download_bytes", "downloadBytes", "received_bytes", "receivedBytes"),
+                "tx_bytes": ("tx_bytes", "upload_bytes", "uploadBytes", "sent_bytes", "sentBytes"),
+                "rx_rate": ("rx_rate", "download_rate", "downloadRate", "rx_per_sec", "rxPerSec"),
+                "tx_rate": ("tx_rate", "upload_rate", "uploadRate", "tx_per_sec", "txPerSec"),
+            },
+        )
+        mem = _normalize_metric_block(
+            candidate,
+            ("mem", "memory"),
+            {
+                "total": ("total", "total_mb", "totalMb"),
+                "used": ("used", "used_mb", "usedMb"),
+                "available": ("available", "free", "available_mb", "availableMb", "free_mb", "freeMb"),
+            },
+        )
+        storage = _normalize_metric_block(
+            candidate,
+            ("storage", "disk"),
+            {
+                "total": ("total", "total_mb", "totalMb"),
+                "used": ("used", "used_mb", "usedMb"),
+                "free": ("free", "available", "free_mb", "freeMb", "available_mb", "availableMb"),
+            },
+        )
+        cpu_raw = _pick_first(candidate, "cpu", "cpu_usage", "cpuUsage")
+        load_raw = _pick_first(candidate, "load", "load_average", "loadAverage", "loadavg")
+        has_status_keys = any(
+            key in candidate
+            for key in (
+                "services",
+                "service_statuses",
+                "serviceStatuses",
+                "service_status",
+                "serviceStatus",
+                "statuses",
+                "net",
+                "network",
+                "mem",
+                "memory",
+                "storage",
+                "disk",
+                "cpu",
+                "cpu_usage",
+                "cpuUsage",
+                "load",
+                "load_average",
+                "loadAverage",
+                "loadavg",
+            )
+        )
+        if not has_status_keys:
+            continue
+        return {
+            "cpu": _coerce_number(cpu_raw, 0),
+            "load": _normalize_load_value(load_raw),
+            "mem": mem,
+            "storage": storage,
+            "net": net,
+            "services": services or [],
+        }
+    return None
+
+
 def get_status_payload():
-    if backend_configured():
+    backend = selected_backend() if backend_configured() else None
+    backend_error = ""
+    if backend:
         try:
             data = backend_request("/status", payload=None, method="GET")
-            if isinstance(data, dict) and data.get("ok") is True:
-                data["services"] = normalize_service_entries(data.get("services") or data.get("service_statuses") or [])
-                data["net"] = build_live_network_stats(data.get("net"), source=_network_source_key())
-                return data
-        except Exception:
-            pass
+            normalized = normalize_backend_status_payload(data)
+            if normalized:
+                normalized["services"] = normalize_service_entries(normalized.get("services") or [])
+                normalized["net"] = build_live_network_stats(normalized.get("net"), source=_network_source_key())
+                normalized["status_source"] = "backend"
+                normalized["backend_error"] = ""
+                normalized["backend_label"] = backend.get("label", "")
+                normalized["backend_host"] = backend_host(backend)
+                return normalized
+            backend_error = "Unsupported backend /status response."
+        except Exception as exc:
+            backend_error = backend_error_message(exc)
     rx_total, tx_total = get_total_network_bytes()
-    services = [[name, False] for name in STATUS_SERVICE_ORDER]
+    services = [[name, None if backend else False] for name in STATUS_SERVICE_ORDER]
     return {
         "cpu": get_cpu_percent(),
         "load": get_load_average(),
@@ -977,6 +1125,10 @@ def get_status_payload():
         "storage": get_storage_stats(),
         "net": build_live_network_stats({"rx_bytes": rx_total, "tx_bytes": tx_total}, source="local"),
         "services": services,
+        "status_source": "local",
+        "backend_error": backend_error,
+        "backend_label": backend.get("label", "") if backend else "",
+        "backend_host": backend_host(backend) if backend else "",
     }
 
 
@@ -1286,14 +1438,16 @@ def render_status():
         """
 <div class="container"><div class="neo-box">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-server" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Server Status</h2></div>
+  <div id="status-source-note" class="success-msg" style="display:none;"></div>
   <div class="status-subtitle"><i class="fa-solid fa-network-wired"></i> Network Traffic</div><div class="status-grid-2" id="network-grid"></div>
   <div class="status-subtitle"><i class="fa-solid fa-microchip"></i> System Resources</div><div class="status-grid-2" id="status-grid"></div>
   <div class="status-subtitle"><i class="fa-solid fa-plug"></i> Services</div><div class="services-grid" id="services-container"></div>
 </div></div>
 <script>
+function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;'}[m]));}
 function formatSpeed(v){if(v>1024*1024)return (v/1024/1024).toFixed(2)+' MB/s';if(v>1024)return (v/1024).toFixed(2)+' KB/s';return v.toFixed(0)+' B/s';}
 function formatBytes(v){if(v>1024*1024*1024)return (v/1024/1024/1024).toFixed(2)+' GB';if(v>1024*1024)return (v/1024/1024).toFixed(2)+' MB';if(v>1024)return (v/1024).toFixed(2)+' KB';return v.toFixed(0)+' B';}
-function updateStatus(){fetch('/status/full?t='+Date.now()).then(r=>r.json()).then(data=>{document.getElementById('network-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Download Speed</div><div class="status-value">${formatSpeed(data.net.rx_rate)}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-up" style="color:var(--accent-color)"></i> Upload Speed</div><div class="status-value">${formatSpeed(data.net.tx_rate)}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--success)"></i> Total Downloaded</div><div class="status-value">${formatBytes(data.net.rx_bytes)}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--accent-color)"></i> Total Uploaded</div><div class="status-value">${formatBytes(data.net.tx_bytes)}</div></div>`;document.getElementById('status-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-microchip" style="color:var(--primary-color)"></i> CPU Usage</div><div class="status-value">${data.cpu}%</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-chart-line" style="color:var(--accent-color)"></i> Load Average</div><div class="status-value">${data.load.join(', ')}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--success)"></i> Memory Used</div><div class="status-value">${data.mem.used} / ${data.mem.total} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--primary-color)"></i> Memory Available</div><div class="status-value">${data.mem.available} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--accent-color)"></i> Storage Used</div><div class="status-value">${data.storage.used} / ${data.storage.total} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--success)"></i> Storage Free</div><div class="status-value">${data.storage.free} MB</div></div>`;let s='';data.services.forEach(x=>{const icon=x[1]?'<i class="fa-solid fa-circle-check" style="color:var(--success)"></i>':'<i class="fa-solid fa-circle-xmark" style="color:var(--error)"></i>';s+=`<div class="service-item"><div>${icon} ${x[0]}</div></div>`;});document.getElementById('services-container').innerHTML=s;}).catch(()=>{});}
+function updateStatus(){fetch('/status/full?t='+Date.now()).then(r=>r.json()).then(data=>{const note=document.getElementById('status-source-note');const sourceName=escapeHtml(data.backend_label||data.backend_host||'configured server');if(note){if(data.status_source==='backend'){note.style.display='flex';note.style.background='linear-gradient(180deg,#ffffff 0%,#fff6f8 100%)';note.style.borderColor='var(--success)';note.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success);"></i><div>Live server status source: ${sourceName}</div>`;}else if(data.backend_error){note.style.display='flex';note.style.background='rgba(239,68,68,.1)';note.style.borderColor='var(--error)';note.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:var(--error);"></i><div>Could not read VPS status from ${sourceName}: ${escapeHtml(data.backend_error)}. Showing fallback stats from this web host instead.</div>`;}else{note.style.display='none';note.innerHTML='';}}document.getElementById('network-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Download Speed</div><div class="status-value">${formatSpeed(Number(data.net?.rx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-up" style="color:var(--accent-color)"></i> Upload Speed</div><div class="status-value">${formatSpeed(Number(data.net?.tx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--success)"></i> Total Downloaded</div><div class="status-value">${formatBytes(Number(data.net?.rx_bytes||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--accent-color)"></i> Total Uploaded</div><div class="status-value">${formatBytes(Number(data.net?.tx_bytes||0))}</div></div>`;document.getElementById('status-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-microchip" style="color:var(--primary-color)"></i> CPU Usage</div><div class="status-value">${Number(data.cpu||0)}%</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-chart-line" style="color:var(--accent-color)"></i> Load Average</div><div class="status-value">${Array.isArray(data.load)?data.load.join(', '):'0.00, 0.00, 0.00'}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--success)"></i> Memory Used</div><div class="status-value">${Number(data.mem?.used||0)} / ${Number(data.mem?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--primary-color)"></i> Memory Available</div><div class="status-value">${Number(data.mem?.available||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--accent-color)"></i> Storage Used</div><div class="status-value">${Number(data.storage?.used||0)} / ${Number(data.storage?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--success)"></i> Storage Free</div><div class="status-value">${Number(data.storage?.free||0)} MB</div></div>`;let s='';(data.services||[]).forEach(x=>{const name=escapeHtml(x[0]);let icon='',label='',color='var(--text-muted)';if(x[1]===true){icon='<i class="fa-solid fa-circle-check" style="color:var(--success)"></i>';label='ONLINE';color='var(--success)';}else if(x[1]===false){icon='<i class="fa-solid fa-circle-xmark" style="color:var(--error)"></i>';label='OFFLINE';color='var(--error)';}else{icon='<i class="fa-solid fa-circle-question" style="color:var(--warning)"></i>';label='UNKNOWN';color='var(--warning)';}s+=`<div class="service-item"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><div>${icon} ${name}</div><div style="font-weight:700;color:${color};">${label}</div></div></div>`;});document.getElementById('services-container').innerHTML=s;}).catch(()=>{});}
 updateStatus();setInterval(updateStatus,2000);
 </script>
 """,

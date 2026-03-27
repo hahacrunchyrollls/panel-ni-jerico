@@ -379,20 +379,7 @@ func (a *app) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"mem":     memoryStats(),
 		"storage": storageStats(),
 		"net":     a.networkStats(),
-		"services": [][]any{
-			{"SSH", serviceActive("ssh.service")},
-			{"DNSTT", serviceActive("dnstt.service")},
-			{"SQUID", serviceActive("squid.service")},
-			{"WEBSOCKET", serviceActive("websocket.service")},
-			{"SSL", serviceActive("multiplexer.service")},
-			{"XRAY", serviceActive("xray.service")},
-			{"BADVPN-UDPGW", serviceActive("badvpn-udpgw.service")},
-			{"HYSTERIA", serviceActiveAny("hysteria-server.service", "hysteria-v1.service")},
-			{"WIREGUARD", serviceActiveAny("wireguard.service", "wg-quick@wg0.service")},
-			{"SLIPSTREAM", serviceActive("slipstream.service")},
-			{"MULTIPLEXER", serviceActive("multiplexer.service")},
-			{"OPENVPN", serviceActive("openvpn.service")},
-		},
+		"services": serviceStatusEntries(),
 	})
 }
 
@@ -628,6 +615,71 @@ func serviceActiveAny(units ...string) bool {
 		}
 	}
 	return false
+}
+
+func runningServiceUnits() []string {
+	cmd := exec.Command("systemctl", "list-units", "--type=service", "--state=running", "--no-legend", "--plain", "--no-pager")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	units := []string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		units = append(units, strings.ToLower(strings.TrimSpace(fields[0])))
+	}
+	return units
+}
+
+func matchesServiceUnit(unit string, patterns ...string) bool {
+	normalizedUnit := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(unit, ".service")))
+	for _, pattern := range patterns {
+		normalizedPattern := strings.ToLower(strings.TrimSpace(strings.TrimSuffix(pattern, ".service")))
+		if normalizedPattern == "" {
+			continue
+		}
+		if normalizedUnit == normalizedPattern || strings.HasPrefix(normalizedUnit, normalizedPattern+"@") || strings.Contains(normalizedUnit, normalizedPattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceRunning(units []string, patterns ...string) bool {
+	for _, unit := range units {
+		if matchesServiceUnit(unit, patterns...) {
+			return true
+		}
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(pattern, ".service") {
+			if serviceActive(pattern) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func serviceStatusEntries() [][]any {
+	units := runningServiceUnits()
+	return [][]any{
+		{"SSH", serviceRunning(units, "ssh.service", "sshd.service", "ssh", "sshd")},
+		{"DNSTT", serviceRunning(units, "dnstt.service", "dnstt")},
+		{"SQUID", serviceRunning(units, "squid.service", "squid")},
+		{"WEBSOCKET", serviceRunning(units, "websocket.service", "websocket", "ws-stunnel", "ws-dropbear", "pythonws")},
+		{"SSL", serviceRunning(units, "multiplexer.service", "stunnel4.service", "stunnel.service", "stunnel", "nginx.service", "haproxy.service")},
+		{"XRAY", serviceRunning(units, "xray.service", "xray")},
+		{"BADVPN-UDPGW", serviceRunning(units, "badvpn-udpgw.service", "badvpn-udpgw", "udpgw")},
+		{"HYSTERIA", serviceRunning(units, "hysteria-server.service", "hysteria-v1.service", "hysteria.service", "hysteria")},
+		{"WIREGUARD", serviceRunning(units, "wireguard.service", "wg-quick@wg0.service", "wg-quick", "wireguard")},
+		{"SLIPSTREAM", serviceRunning(units, "slipstream.service", "slipstream")},
+		{"MULTIPLEXER", serviceRunning(units, "multiplexer.service", "multiplexer")},
+		{"OPENVPN", serviceRunning(units, "openvpn.service", "openvpn-server@server.service", "openvpn@server.service", "openvpn-server", "openvpn")},
+	}
 }
 
 func validateUsername(raw string) (string, error) {
