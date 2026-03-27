@@ -759,6 +759,20 @@ def backend_health_url(backend=None):
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, health_path, "", ""))
 
 
+def backend_probe_hosts(backend=None):
+    backend = backend or selected_backend()
+    hosts = []
+    for value in (str((backend or {}).get("lookup", "")).strip(), backend_host(backend)):
+        candidate = value.strip().strip("/").strip()
+        if not candidate:
+            continue
+        candidate = re.sub(r"^[a-z]+://", "", candidate, flags=re.IGNORECASE)
+        candidate = candidate.split("/", 1)[0].split(":", 1)[0].strip()
+        if candidate and candidate not in hosts:
+            hosts.append(candidate)
+    return hosts
+
+
 def probe_backend_health(backend):
     host = backend_host(backend)
     port = backend_port(backend)
@@ -823,6 +837,7 @@ def probe_backend_health_metadata(backend):
         "host": host,
         "port": port,
         "health_url": health_url,
+        "probe_hosts": backend_probe_hosts(backend),
         "alive": False,
         "latency_ms": None,
         "text": "Dead",
@@ -901,6 +916,7 @@ def get_all_backend_health_statuses(force=False):
                     "host": backend_host(next((item for item in backends if item["id"] == backend_id), None)),
                     "port": backend_port(next((item for item in backends if item["id"] == backend_id), None)),
                     "health_url": backend_health_url(next((item for item in backends if item["id"] == backend_id), None)),
+                    "probe_hosts": backend_probe_hosts(next((item for item in backends if item["id"] == backend_id), None)),
                     "alive": False,
                     "latency_ms": None,
                     "text": "Dead",
@@ -2169,9 +2185,9 @@ def render_page(title, content):
 def build_service_cards():
     cards = []
     daily_limit = get_daily_account_limit()
-    total_created_today = get_total_daily_created_count()
     enabled = backend_configured()
     for service, label, icon in SERVICE_META:
+        service_created_today = get_total_daily_created_count(service)
         anchor_attr = "" if enabled else 'onclick="return false;"'
         button_attr = "" if enabled else "disabled"
         style_attr = "width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;"
@@ -2183,7 +2199,7 @@ def build_service_cards():
   <a href="/{service}" {anchor_attr}>
     <button class="create-btn" {button_attr} style="{style_attr}">
       <div style="display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text-primary);"><img src="{icon}" style="height:1.1em;"> CREATE {label}</div>
-      <div><span style="background:var(--primary-color);padding:4px 8px;border-radius:999px;font-weight:700;color:#fff;border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);">Today {total_created_today}/{daily_limit}</span></div>
+      <div><span style="background:var(--primary-color);padding:4px 8px;border-radius:999px;font-weight:700;color:#fff;border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);">Today {service_created_today}/{daily_limit}</span></div>
     </button>
   </a>
 </div>"""
@@ -2347,11 +2363,12 @@ function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'})
 function formatServerHealthText(data){if(!data)return'Ping unavailable';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Ping unavailable';}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=formatServerHealthText(data);return;}node.classList.add('is-dead');if(text)text.textContent=formatServerHealthText(data);}
 function appendPingCandidate(list,url,mode){const value=String(url||'').trim();if(!value)return;if(window.location.protocol==='https:'&&/^http:\/\//i.test(value))return;if(list.some(item=>item.url===value))return;list.push({url:value,mode:mode||'cors'});}
-function buildPingCandidates(status){const list=[];if(status&&status.health_url)appendPingCandidate(list,status.health_url,'cors');const host=String((status&&status.host)||'').trim();if(host){const protocol=window.location.protocol==='http:'?'http:':'https:';const port=Number((status&&status.port)||0);const portPart=port&&!(protocol==='https:'&&port===443)&&!(protocol==='http:'&&port===80)?':'+port:'';appendPingCandidate(list,protocol+'//'+host+portPart+'/healthz','no-cors');appendPingCandidate(list,protocol+'//'+host+'/healthz','no-cors');appendPingCandidate(list,protocol+'//'+host+'/favicon.ico','no-cors');appendPingCandidate(list,protocol+'//'+host+'/','no-cors');}return list;}
+function buildPingCandidates(status){const list=[];if(status&&status.health_url)appendPingCandidate(list,status.health_url,'cors');const rawHosts=[];if(Array.isArray(status&&status.probe_hosts))status.probe_hosts.forEach(host=>rawHosts.push(String(host||'')));rawHosts.push(String((status&&status.host)||''));const hosts=[];rawHosts.forEach(host=>{const clean=host.trim();if(clean&&!hosts.includes(clean))hosts.push(clean);});const protocol=window.location.protocol==='http:'?'http:':'https:';const port=Number((status&&status.port)||0);hosts.forEach(host=>{const portPart=port&&!(protocol==='https:'&&port===443)&&!(protocol==='http:'&&port===80)?':'+port:'';appendPingCandidate(list,protocol+'//'+host+portPart+'/healthz','no-cors');appendPingCandidate(list,protocol+'//'+host+'/healthz','no-cors');appendPingCandidate(list,protocol+'//'+host+'/favicon.ico','no-cors');appendPingCandidate(list,protocol+'//'+host+'/','no-cors');});return list;}
 async function pingCandidate(candidate){if(!candidate||!candidate.url)return null;const controller=typeof AbortController==='function'?new AbortController():null;const timer=controller?setTimeout(()=>controller.abort(),4000):null;const start=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();try{const target=candidate.url+(candidate.url.includes('?')?'&':'?')+'_ping='+Date.now();const response=await fetch(target,{method:'GET',mode:candidate.mode||'cors',cache:'no-store',credentials:'omit',signal:controller?controller.signal:void 0});if((candidate.mode||'cors')==='cors'&&!response.ok)throw new Error('HTTP '+response.status);if((candidate.mode||'cors')==='cors')await response.text();const end=(window.performance&&typeof window.performance.now==='function')?window.performance.now():Date.now();const latency=Math.max(1,Math.round(end-start));return {alive:true,latency_ms:latency,text:'Ping '+latency+' ms',source:'client'};}catch(_error){return null;}finally{if(timer)clearTimeout(timer);}}
 async function measureBrowserPing(status){const candidates=buildPingCandidates(status);if(!candidates.length)return {alive:false,text:'Ping unavailable',source:'client'};for(const candidate of candidates){const result=await pingCandidate(candidate);if(result)return result;}return {alive:false,text:'Dead',source:'client'};}
+function mergeServerHealth(browserStatus,fallback){if(browserStatus&&browserStatus.alive)return browserStatus;if(fallback&&fallback.alive)return {alive:true,text:'Alive',source:'panel'};return browserStatus||fallback||{alive:false,text:'Dead'};}
 let serverHealthUpdating=false;
-async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,browserStatus);}));}catch(_error){}finally{serverHealthUpdating=false;}}
+async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,mergeServerHealth(browserStatus,status));}));}catch(_error){}finally{serverHealthUpdating=false;}}
 fetchChat();updateMainStats();updateServerHealth();setInterval(fetchChat,5000);setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
