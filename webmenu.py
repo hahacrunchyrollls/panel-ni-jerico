@@ -1405,10 +1405,9 @@ def find_backend_config(backend_id):
 
 def admin_backend_label(backend):
     backend = backend or {}
-    for key in ("label", "country", "id"):
-        value = str(backend.get(key, "") or "").strip()
-        if value:
-            return value
+    display_label = str(backend_display_label(backend) or "").strip()
+    if display_label:
+        return display_label
     return backend_host(backend)
 
 
@@ -1538,7 +1537,7 @@ def render_admin_account_card(account):
     status_style = "background:rgba(16,185,129,.12);color:var(--success);" if account.get("active") else "background:rgba(239,68,68,.12);color:var(--error);"
     confirm_text = json.dumps(f"Remove {username} from {service_name} on {account.get('backend_label', 'this server')}?")
     return f"""
-<div class="link-box" style="display:flex;flex-direction:column;gap:.9rem;">
+<div class="link-box" data-admin-account-card data-service="{service_attr}" style="display:flex;flex-direction:column;gap:.9rem;">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <div>
       <div style="font-weight:800;font-size:1.05rem;">{username_display}</div>
@@ -1579,12 +1578,16 @@ def render_admin_account_manager():
   <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
   <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts.</div>
 </div>"""
+    protocol_options = ['<option value="all" selected>All</option>']
+    for service, label, _icon in SERVICE_META:
+        protocol_options.append(f'<option value="{html.escape(service, quote=True)}">{html.escape(label)}</option>')
     sections = []
     for group in groups:
         backend_label = html.escape(str(group.get("backend_label", "Server") or "Server"))
         backend_host_text = html.escape(str(group.get("backend_host", "") or "Unknown host"))
         accounts = list(group.get("accounts", []))
         error = str(group.get("error", "") or "").strip()
+        section_attrs = 'data-admin-account-section data-account-total="0"'
         if error:
             body = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);margin-top:1rem;"><i class="fa-solid fa-triangle-exclamation" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
         elif not accounts:
@@ -1603,26 +1606,28 @@ def render_admin_account_manager():
                 service_total = sum(1 for account in ordered_accounts if account.get("service") == service)
                 if service_total:
                     summary_bits.append(
-                        f'<span class="server-badge" style="background:rgba(124,16,39,.08);">{html.escape(label)}: {service_total}</span>'
+                        f'<span class="server-badge" data-admin-service-summary data-service="{html.escape(service, quote=True)}" style="background:rgba(124,16,39,.08);">{html.escape(label)}: {service_total}</span>'
                     )
             summary_html = "".join(summary_bits)
             cards_html = "".join(render_admin_account_card(account) for account in ordered_accounts)
+            section_attrs = f'data-admin-account-section data-account-total="{len(ordered_accounts)}"'
             body = f"""
 <div style="margin-top:1rem;">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:.75rem;">
     <div style="font-weight:800;">Server Accounts</div>
-    <div style="color:var(--text-muted);font-size:.92rem;">{len(ordered_accounts)} total</div>
+    <div style="color:var(--text-muted);font-size:.92rem;"><span data-admin-account-visible-total>{len(ordered_accounts)}</span> <span data-admin-account-count-label>total</span></div>
   </div>
   {'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:.9rem;">' + summary_html + '</div>' if summary_html else ''}
-  <div class="admin-account-grid">{cards_html}</div>
+  <div class="admin-account-grid" data-admin-account-grid>{cards_html}</div>
+  <div class="success-msg" data-admin-account-filter-empty style="display:none;margin-top:1rem;background:rgba(124,16,39,.06);border-left-color:var(--warning);"><i class="fa-solid fa-circle-info" style="color:var(--warning);"></i><div>No matching accounts for this protocol on this server.</div></div>
 </div>"""
         sections.append(
             f"""
-<div class="link-box" style="margin-top:1rem;">
+<div class="link-box" {section_attrs} style="margin-top:1rem;">
   <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;">
     <div>
       <div style="font-weight:800;font-size:1.05rem;">{backend_label}</div>
-      <div style="color:var(--text-muted);font-size:.92rem;">{backend_host_text} | {len(accounts)} accounts</div>
+      <div style="color:var(--text-muted);font-size:.92rem;">{backend_host_text}</div>
     </div>
   </div>
   {body}
@@ -1633,9 +1638,63 @@ def render_admin_account_manager():
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.4rem;">Account Manager</div>
   <div style="color:var(--text-secondary);margin-bottom:.4rem;">Review live SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts on every connected backend, remove accounts instantly, or set a new expiration in days from now.</div>
+  <div class="link-box" style="margin-top:1rem;">
+    <form style="margin:0;align-items:flex-start;">
+      <div class="form-group" style="margin:0;align-items:flex-start;text-align:left;">
+        <label class="form-label" for="admin-protocol-filter" style="margin-bottom:.55rem;text-align:left;max-width:none;"><i class="fa-solid fa-filter"></i> Sort by Protocol</label>
+        <div class="form-input-container" style="justify-content:flex-start;max-width:320px;">
+          <select id="admin-protocol-filter" style="max-width:none;">
+            """
+        + "".join(protocol_options)
+        + """
+          </select>
+        </div>
+      </div>
+    </form>
+  </div>
   """
         + "".join(sections)
-        + "</div>"
+        + """
+<script>
+(function(){
+  const select=document.getElementById('admin-protocol-filter');
+  if(!select)return;
+  const sections=Array.from(document.querySelectorAll('[data-admin-account-section]'));
+  function applyProtocolFilter(){
+    const wanted=String(select.value||'all').toLowerCase();
+    sections.forEach(section=>{
+      const cards=Array.from(section.querySelectorAll('[data-admin-account-card]'));
+      const summaries=Array.from(section.querySelectorAll('[data-admin-service-summary]'));
+      let visibleCount=0;
+      cards.forEach(card=>{
+        const service=String(card.getAttribute('data-service')||'').toLowerCase();
+        const show=wanted==='all'||service===wanted;
+        card.style.display=show?'flex':'none';
+        if(show)visibleCount+=1;
+      });
+      summaries.forEach(summary=>{
+        const service=String(summary.getAttribute('data-service')||'').toLowerCase();
+        summary.style.display=(wanted==='all'||service===wanted)?'':'none';
+      });
+      const grid=section.querySelector('[data-admin-account-grid]');
+      if(grid)grid.style.display=visibleCount>0?'grid':'none';
+      const emptyState=section.querySelector('[data-admin-account-filter-empty]');
+      if(emptyState)emptyState.style.display=wanted!=='all'&&cards.length>0&&visibleCount===0?'':'none';
+      const totalNode=section.querySelector('[data-admin-account-visible-total]');
+      if(totalNode)totalNode.textContent=String(wanted==='all'?cards.length:visibleCount);
+      const labelNode=section.querySelector('[data-admin-account-count-label]');
+      if(labelNode)labelNode.textContent=wanted==='all'?'total':'shown';
+      if(cards.length>0){
+        section.style.display=(wanted==='all'||visibleCount>0)?'':'none';
+      }else{
+        section.style.display=wanted==='all'?'':'none';
+      }
+    });
+  }
+  select.addEventListener('change',applyProtocolFilter);
+  applyProtocolFilter();
+})();
+</script></div>"""
     )
 
 
