@@ -50,7 +50,7 @@ SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
     ("vless", "VLESS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-v2ray.png"),
     ("hysteria", "HYSTERIA", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-hysteria.png"),
-    ("wireguard", "WIREGUARD", "https://www.wireguard.com/img/wireguard.svg"),
+    ("wireguard", "WIREGUARD", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-wireguard.png"),
     ("openvpn", "OPENVPN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-openvpn.png"),
 ]
 STATUS_SERVICE_ORDER = [
