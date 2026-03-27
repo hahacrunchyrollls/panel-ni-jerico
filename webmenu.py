@@ -1558,7 +1558,7 @@ def render_admin_account_card(account):
       </div>
     </div>
   </form>
-  <form method="POST" action="/admin" class="admin-account-form" onsubmit='return confirm({confirm_text});'>
+  <form method="POST" action="/admin" class="admin-account-form admin-account-delete-form" onsubmit='return confirm({confirm_text});'>
     <input type="hidden" name="action" value="delete_account">
     <input type="hidden" name="backend_id" value="{backend_attr}">
     <input type="hidden" name="service" value="{service_attr}">
@@ -2432,7 +2432,8 @@ form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bot
 .admin-account-expiry-copy{font-size:.75rem;font-weight:900;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
 .admin-account-expiry-controls{display:grid;grid-template-columns:minmax(0,88px) 1fr;gap:8px;align-items:center}
 .admin-account-expiry-controls input{max-width:none;padding:10px 12px;border-width:2px;border-radius:14px;font-size:.95rem}
-.admin-account-action{width:100%;max-width:none;padding:10px 12px;font-size:.9rem;border-radius:14px;box-shadow:3px 3px 0 rgba(31,6,12,.22)}
+.admin-account-action{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:auto;max-width:none;min-width:110px;padding:10px 14px;font-size:.9rem;border-radius:14px;box-shadow:3px 3px 0 rgba(31,6,12,.22);white-space:nowrap}
+.admin-account-delete-form{display:flex;justify-content:flex-start}
 .admin-account-delete{background:linear-gradient(180deg,#fff5f5 0%,#ffdfe4 100%);color:var(--error);border:3px solid rgba(127,29,29,.35);box-shadow:3px 3px 0 rgba(127,29,29,.16)}
 .server-selector{max-width:760px;margin:0 auto 1.35rem auto;padding:1.1rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
 .server-selector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1rem;text-align:left;}
@@ -2475,7 +2476,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid,.admin-account-expiry-controls{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.admin-account-card-head{align-items:flex-start}.admin-account-status{justify-self:flex-start}}
+@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid,.admin-account-expiry-controls{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.admin-account-card-head{align-items:flex-start}.admin-account-status{justify-self:flex-start}.admin-account-action{width:100%}.admin-account-delete-form{justify-content:stretch}}
 </style>
 </head>
 <body>
