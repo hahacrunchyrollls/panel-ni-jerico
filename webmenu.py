@@ -1222,6 +1222,22 @@ def increment_total_accounts():
     return load_visits()["total_accounts"]
 
 
+def get_display_total_accounts(visits=None, counters=None):
+    visits = visits if isinstance(visits, dict) else load_visits()
+    remote_state = load_remote_panel_state()
+    candidates = [get_total_daily_created_count()]
+    try:
+        candidates.append(max(int(visits.get("total_accounts", 0) or 0), 0))
+    except Exception:
+        pass
+    if isinstance(remote_state, dict):
+        try:
+            candidates.append(max(int(remote_state.get("total_accounts", 0) or 0), 0))
+        except Exception:
+            pass
+    return max(candidates) if candidates else 0
+
+
 def load_create_cooldowns():
     data = load_json(COOLDOWN_FILE, {"ips": {}})
     ips = data.get("ips", {})
@@ -2250,6 +2266,8 @@ def render_server_selector(redirect_to="/services", show_header=True):
 def render_home():
     visits = bump_visit_count()
     enabled = backend_configured()
+    counters = load_backend_summary_counters() if enabled else {"online_users": 0, "total_accounts": 0}
+    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
     continue_html = ""
@@ -2290,8 +2308,8 @@ def render_home():
 </div>
 <div class="stats-container">
   <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
-  <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="online-users">0</div><div class="stat-label">Online Users</div></div></div>
-  <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">0</div><div class="stat-label">Accounts Created</div></div></div>
+  <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="online-users">{{ online_users }}</div><div class="stat-label">Online Users</div></div></div>
+  <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
 </div>
 <script>
 const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
@@ -2310,6 +2328,8 @@ updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInte
 </script>
 """,
             visits=visits["total_visits"],
+            online_users=max(int((counters or {}).get("online_users", 0) or 0), 0),
+            total_accounts=total_accounts,
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
             continue_html=Markup(continue_html),
@@ -2930,8 +2950,8 @@ def status_full():
 @app.get("/main/stats")
 def main_stats():
     visits = load_visits()
-    total_accounts = max(int(visits.get("total_accounts", 0) or 0), get_total_daily_created_count())
     counters = load_backend_summary_counters()
+    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     response = jsonify({"online_users": counters["online_users"], "total_visits": visits.get("total_visits", 0), "total_accounts": total_accounts})
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
