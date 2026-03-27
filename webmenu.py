@@ -920,7 +920,7 @@ def get_all_backend_health_statuses(force=False):
     return statuses
 
 
-def backend_display_label(backend=None):
+def _backend_base_display_label(backend=None):
     backend = backend or selected_backend()
     if not backend:
         return "Unknown"
@@ -941,6 +941,26 @@ def backend_display_label(backend=None):
         if city:
             return city
     return raw_label or backend_id or backend_host(backend)
+
+
+def backend_display_label(backend=None):
+    backend = backend or selected_backend()
+    if not backend:
+        return "Unknown"
+    base_label = _backend_base_display_label(backend)
+    if not base_label or base_label == "Unknown":
+        return base_label or "Unknown"
+    backend_id = str(backend.get("id", "")).strip()
+    matching_backends = []
+    for item in load_backends():
+        if _backend_base_display_label(item) == base_label:
+            matching_backends.append(item)
+    if len(matching_backends) <= 1:
+        return base_label
+    for index, item in enumerate(matching_backends, start=1):
+        if str(item.get("id", "")).strip() == backend_id:
+            return f"{base_label} {index}"
+    return base_label
 
 
 def backend_location(backend=None):
@@ -2663,6 +2683,28 @@ def render_selected_server_note(change_href="/main", include_change=True, margin
     )
 
 
+def render_selected_server_latency_card(margin_style="margin:-.2rem auto 1.2rem auto;"):
+    current_backend = explicitly_selected_backend()
+    if not current_backend:
+        return ""
+    backend_id = html.escape(str(current_backend.get("id", "") or "").strip(), quote=True)
+    display_label = html.escape(backend_display_label(current_backend))
+    host_label = html.escape(backend_host(current_backend))
+    return f"""
+<div class="link-box" style="{margin_style}max-width:760px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;text-align:left;">
+    <div style="min-width:0;">
+      <div style="font-weight:800;color:var(--primary-color);">Your Latency to Selected Server</div>
+      <div style="color:var(--text-muted);font-size:.92rem;">{display_label} | {host_label}</div>
+    </div>
+    <div class="server-card-health is-checking" data-server-health data-backend-id="{backend_id}" style="margin-top:0;">
+      <span class="server-card-health-dot"></span>
+      <span data-server-health-text>Checking your latency...</span>
+    </div>
+  </div>
+</div>"""
+
+
 def render_server_selector(redirect_to="/services", show_header=True):
     backends = load_backends()
     if not backends:
@@ -2738,6 +2780,7 @@ def render_home():
     online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
     selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
+    selected_latency_html = render_selected_server_latency_card()
     continue_html = ""
     if enabled and has_explicit_backend_selection():
         continue_html = """
@@ -2753,12 +2796,13 @@ def render_home():
             """
 <div class="container">
   <div class="neo-box" style="text-align:center;">
-    <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;">
+  <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;">
       <i class="fa-solid fa-earth-asia" style="font-size:1.8em;color:var(--accent-color);"></i>
       <h2 class="section-title" style="margin:0;">CHOOSE SERVER</h2>
     </div>
     {{ selector_html|safe }}
     {{ current_server_note|safe }}
+    {{ selected_latency_html|safe }}
     {% if page_error %}
     <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
       <i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i>
@@ -2791,7 +2835,7 @@ async function pingCandidate(candidate){if(!candidate||!candidate.url)return nul
 async function measureBrowserPing(status){const candidates=buildPingCandidates(status);if(!candidates.length)return {alive:false,text:'Ping unavailable',source:'client'};for(const candidate of candidates){const result=await pingCandidate(candidate);if(result)return result;}return {alive:false,text:'Dead',source:'client'};}
 function mergeServerHealth(browserStatus,fallback){if(browserStatus&&browserStatus.alive)return browserStatus;if(fallback&&fallback.alive)return {alive:true,text:'Alive',source:'panel'};return browserStatus||fallback||{alive:false,text:'Dead'};}
 let serverHealthUpdating=false;
-async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));await Promise.all(nodes.map(async node=>{const backendId=node.getAttribute('data-backend-id')||'';const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);applyServerHealth(node,mergeServerHealth(browserStatus,status));}));}catch(_error){}finally{serverHealthUpdating=false;}}
+async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));const grouped=new Map();nodes.forEach(node=>{const backendId=node.getAttribute('data-backend-id')||'';if(!grouped.has(backendId))grouped.set(backendId,[]);grouped.get(backendId).push(node);});await Promise.all(Array.from(grouped.entries()).map(async entry=>{const backendId=entry[0];const backendNodes=entry[1];const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);const merged=mergeServerHealth(browserStatus,status);backendNodes.forEach(node=>applyServerHealth(node,merged));}));}catch(_error){}finally{serverHealthUpdating=false;}}
 updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
 </script>
 """,
@@ -2800,6 +2844,7 @@ updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInte
             total_accounts=total_accounts,
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
+            selected_latency_html=Markup(selected_latency_html),
             continue_html=Markup(continue_html),
             page_error=page_error,
             backend_ready=enabled,
