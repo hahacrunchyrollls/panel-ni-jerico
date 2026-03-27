@@ -1254,6 +1254,18 @@ def get_status_payload():
             backend_error = "Unsupported backend /status response."
         except Exception as exc:
             backend_error = backend_error_message(exc)
+        return {
+            "cpu": 0,
+            "load": ["0.00", "0.00", "0.00"],
+            "mem": {"total": 0, "used": 0, "available": 0},
+            "storage": {"total": 0, "used": 0, "free": 0},
+            "net": build_live_network_stats({"rx_bytes": 0, "tx_bytes": 0}, source=_network_source_key()),
+            "services": [[name, None] for name in STATUS_SERVICE_ORDER],
+            "status_source": "backend",
+            "backend_error": backend_error,
+            "backend_label": backend.get("label", ""),
+            "backend_host": backend_host(backend),
+        }
     rx_total, tx_total = get_total_network_bytes()
     services = [[name, None if backend else False] for name in STATUS_SERVICE_ORDER]
     return {
@@ -1400,8 +1412,8 @@ def navbar_html():
     return f"""
 <nav class="navbar">
   <a href="/main/" class="navbar-brand">
-    <img src="/site-logo" alt="FUJI PANEL" class="brand-icon">
-    <span>FUJI PANEL</span>
+    <img src="/site-logo" alt="FUJI VPN" class="brand-icon">
+    <span>FUJI VPN</span>
     <span style="display:inline-flex;align-items:center;font-size:.78rem;font-weight:700;color:var(--text-secondary);margin-left:.55rem;padding:.24rem .55rem;background:var(--surface);border-radius:999px;border:2px solid var(--card-border);box-shadow:3px 3px 0 rgba(93,9,25,.18);white-space:nowrap;">IP: {visitor_ip}</span>
   </a>
   <div class="navbar-nav">
@@ -1528,8 +1540,6 @@ def render_server_selector(redirect_to="/services/"):
       <div class="server-selector-head">
         <div>
           <div class="server-selector-kicker"><i class="fa-solid fa-earth-asia"></i> Choose Country / Server</div>
-          <div class="server-selector-title">Pick a server first</div>
-          <div class="server-selector-note">After you choose a server, we will take you to the Service page to pick a protocol.</div>
         </div>
       </div>
       <div class="server-selector-grid">{''.join(server_cards)}</div>
@@ -1551,7 +1561,7 @@ def render_home():
     </div>"""
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
     return render_page(
-        "FUJI PANEL",
+        "FUJI VPN",
         render_template_string(
             """
 <div class="container">
@@ -1560,7 +1570,6 @@ def render_home():
       <i class="fa-solid fa-earth-asia" style="font-size:1.8em;color:var(--accent-color);"></i>
       <h2 class="section-title" style="margin:0;">CHOOSE SERVER</h2>
     </div>
-    <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.6rem;">Select your server first. Protocol selection now lives on the Service page.</div>
     {{ selector_html|safe }}
     {{ current_server_note|safe }}
     {% if page_error %}
@@ -1649,11 +1658,17 @@ def render_services():
 
 
 def render_status():
+    selection_redirect = require_backend_selection()
+    if selection_redirect:
+        return selection_redirect
+    current_server_note = render_selected_server_note(change_href="/main/", include_change=True)
     return render_page(
         "Server Status",
-        """
+        render_template_string(
+            """
 <div class="container"><div class="neo-box">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;"><i class="fa-solid fa-server" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Server Status</h2></div>
+  {{ current_server_note|safe }}
   <div id="status-source-note" class="success-msg" style="display:none;"></div>
   <div class="status-subtitle"><i class="fa-solid fa-network-wired"></i> Network Traffic</div><div class="status-grid-2" id="network-grid"></div>
   <div class="status-subtitle"><i class="fa-solid fa-microchip"></i> System Resources</div><div class="status-grid-2" id="status-grid"></div>
@@ -1663,10 +1678,12 @@ def render_status():
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',\"'\":'&#39;'}[m]));}
 function formatSpeed(v){if(v>1024*1024)return (v/1024/1024).toFixed(2)+' MB/s';if(v>1024)return (v/1024).toFixed(2)+' KB/s';return v.toFixed(0)+' B/s';}
 function formatBytes(v){if(v>1024*1024*1024)return (v/1024/1024/1024).toFixed(2)+' GB';if(v>1024*1024)return (v/1024/1024).toFixed(2)+' MB';if(v>1024)return (v/1024).toFixed(2)+' KB';return v.toFixed(0)+' B';}
-function updateStatus(){fetch('/status/full?t='+Date.now()).then(r=>r.json()).then(data=>{const note=document.getElementById('status-source-note');const sourceName=escapeHtml(data.backend_label||data.backend_host||'configured server');if(note){if(data.status_source==='backend'){note.style.display='flex';note.style.background='linear-gradient(180deg,#ffffff 0%,#fff6f8 100%)';note.style.borderColor='var(--success)';note.innerHTML=`<i class="fa-solid fa-circle-check" style="color:var(--success);"></i><div>Live server status source: ${sourceName}</div>`;}else if(data.backend_error){note.style.display='flex';note.style.background='rgba(239,68,68,.1)';note.style.borderColor='var(--error)';note.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:var(--error);"></i><div>Could not read VPS status from ${sourceName}: ${escapeHtml(data.backend_error)}. Showing fallback stats from this web host instead.</div>`;}else{note.style.display='none';note.innerHTML='';}}document.getElementById('network-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Download Speed</div><div class="status-value">${formatSpeed(Number(data.net?.rx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-up" style="color:var(--accent-color)"></i> Upload Speed</div><div class="status-value">${formatSpeed(Number(data.net?.tx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--success)"></i> Total Downloaded</div><div class="status-value">${formatBytes(Number(data.net?.rx_bytes||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--accent-color)"></i> Total Uploaded</div><div class="status-value">${formatBytes(Number(data.net?.tx_bytes||0))}</div></div>`;document.getElementById('status-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-microchip" style="color:var(--primary-color)"></i> CPU Usage</div><div class="status-value">${Number(data.cpu||0)}%</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-chart-line" style="color:var(--accent-color)"></i> Load Average</div><div class="status-value">${Array.isArray(data.load)?data.load.join(', '):'0.00, 0.00, 0.00'}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--success)"></i> Memory Used</div><div class="status-value">${Number(data.mem?.used||0)} / ${Number(data.mem?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--primary-color)"></i> Memory Available</div><div class="status-value">${Number(data.mem?.available||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--accent-color)"></i> Storage Used</div><div class="status-value">${Number(data.storage?.used||0)} / ${Number(data.storage?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--success)"></i> Storage Free</div><div class="status-value">${Number(data.storage?.free||0)} MB</div></div>`;let s='';(data.services||[]).forEach(x=>{const name=escapeHtml(x[0]);let icon='',label='',color='var(--text-muted)';if(x[1]===true){icon='<i class="fa-solid fa-circle-check" style="color:var(--success)"></i>';label='ONLINE';color='var(--success)';}else if(x[1]===false){icon='<i class="fa-solid fa-circle-xmark" style="color:var(--error)"></i>';label='OFFLINE';color='var(--error)';}else{icon='<i class="fa-solid fa-circle-question" style="color:var(--warning)"></i>';label='UNKNOWN';color='var(--warning)';}s+=`<div class="service-item"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><div>${icon} ${name}</div><div style="font-weight:700;color:${color};">${label}</div></div></div>`;});document.getElementById('services-container').innerHTML=s;}).catch(()=>{});}
+function updateStatus(){fetch('/status/full?t='+Date.now()).then(r=>r.json()).then(data=>{const note=document.getElementById('status-source-note');if(note){if(data.backend_error){note.style.display='flex';note.style.background='rgba(239,68,68,.1)';note.style.borderColor='var(--error)';note.innerHTML=`<i class="fa-solid fa-triangle-exclamation" style="color:var(--error);"></i><div>Could not read the selected server status right now. ${escapeHtml(data.backend_error||'')}</div>`;}else{note.style.display='none';note.innerHTML='';}}document.getElementById('network-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-down" style="color:var(--success)"></i> Download Speed</div><div class="status-value">${formatSpeed(Number(data.net?.rx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-arrow-up" style="color:var(--accent-color)"></i> Upload Speed</div><div class="status-value">${formatSpeed(Number(data.net?.tx_rate||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--success)"></i> Total Downloaded</div><div class="status-value">${formatBytes(Number(data.net?.rx_bytes||0))}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-database" style="color:var(--accent-color)"></i> Total Uploaded</div><div class="status-value">${formatBytes(Number(data.net?.tx_bytes||0))}</div></div>`;document.getElementById('status-grid').innerHTML=`<div class="status-card"><div class="status-label"><i class="fa-solid fa-microchip" style="color:var(--primary-color)"></i> CPU Usage</div><div class="status-value">${Number(data.cpu||0)}%</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-chart-line" style="color:var(--accent-color)"></i> Load Average</div><div class="status-value">${Array.isArray(data.load)?data.load.join(', '):'0.00, 0.00, 0.00'}</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--success)"></i> Memory Used</div><div class="status-value">${Number(data.mem?.used||0)} / ${Number(data.mem?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-memory" style="color:var(--primary-color)"></i> Memory Available</div><div class="status-value">${Number(data.mem?.available||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--accent-color)"></i> Storage Used</div><div class="status-value">${Number(data.storage?.used||0)} / ${Number(data.storage?.total||0)} MB</div></div><div class="status-card"><div class="status-label"><i class="fa-solid fa-hdd" style="color:var(--success)"></i> Storage Free</div><div class="status-value">${Number(data.storage?.free||0)} MB</div></div>`;let s='';(data.services||[]).forEach(x=>{const name=escapeHtml(x[0]);let icon='',label='',color='var(--text-muted)';if(x[1]===true){icon='<i class="fa-solid fa-circle-check" style="color:var(--success)"></i>';label='ONLINE';color='var(--success)';}else if(x[1]===false){icon='<i class="fa-solid fa-circle-xmark" style="color:var(--error)"></i>';label='OFFLINE';color='var(--error)';}else{icon='<i class="fa-solid fa-circle-question" style="color:var(--warning)"></i>';label='UNKNOWN';color='var(--warning)';}s+=`<div class="service-item"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><div>${icon} ${name}</div><div style="font-weight:700;color:${color};">${label}</div></div></div>`;});document.getElementById('services-container').innerHTML=s;}).catch(()=>{});}
 updateStatus();setInterval(updateStatus,2000);
 </script>
 """,
+            current_server_note=Markup(current_server_note),
+        ),
     )
 
 
