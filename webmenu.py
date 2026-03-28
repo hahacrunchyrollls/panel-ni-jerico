@@ -46,6 +46,7 @@ REMOTE_PANEL_STATE_CACHE_TTL = 3
 BACKEND_SUMMARY_CACHE_TTL = 5
 BACKEND_STATUS_SUMMARY_CACHE_TTL = 5
 BACKEND_LOCATION_CACHE_TTL = 3600
+ADMIN_ACCOUNT_GROUPS_CACHE_TTL = 10
 PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
@@ -95,6 +96,8 @@ backend_status_summary_lock = threading.Lock()
 backend_status_summary_cache = {}
 backend_location_lock = threading.Lock()
 backend_location_cache = {}
+admin_account_groups_lock = threading.Lock()
+admin_account_groups_cache = {"loaded_at": 0.0, "groups": None}
 panel_visit_sync_lock = threading.Lock()
 panel_visit_sync_cache = {"last_synced_at": 0.0}
 
@@ -724,6 +727,18 @@ def load_admin_backend_online_breakdown(force=False):
             totals["online_users"] += entry["online_users"]
             servers.append(entry)
     return {"totals": totals, "servers": servers}
+
+
+def get_cached_backend_summary_counters():
+    with backend_summary_lock:
+        cached = backend_summary_cache.get("counters")
+        return _clone(cached) if cached else None
+
+
+def clear_admin_account_groups_cache():
+    with admin_account_groups_lock:
+        admin_account_groups_cache["loaded_at"] = 0.0
+        admin_account_groups_cache["groups"] = None
 
 
 def load_main_online_stats(force=False):
@@ -1611,10 +1626,16 @@ def load_backend_admin_accounts(backend):
     return result
 
 
-def load_admin_account_groups():
+def load_admin_account_groups(force=False):
     backends = load_backends()
     if not backends:
         return []
+    now = time.time()
+    with admin_account_groups_lock:
+        cached = admin_account_groups_cache.get("groups")
+        loaded_at = float(admin_account_groups_cache.get("loaded_at", 0.0) or 0.0)
+        if cached is not None and not force and now - loaded_at < ADMIN_ACCOUNT_GROUPS_CACHE_TTL:
+            return _clone(cached)
     groups = []
     max_workers = min(6, len(backends))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1633,6 +1654,9 @@ def load_admin_account_groups():
                         "error": backend_error_message(exc),
                     }
                 )
+    with admin_account_groups_lock:
+        admin_account_groups_cache["loaded_at"] = time.time()
+        admin_account_groups_cache["groups"] = _clone(groups)
     return groups
 
 
@@ -1708,13 +1732,15 @@ def render_admin_account_card(account):
 </div>"""
 
 
-def render_admin_account_manager():
-    groups = load_admin_account_groups()
+def render_admin_account_manager(force=False):
+    groups = load_admin_account_groups(force=force)
     if not groups:
         return """
-<div class="link-box" style="margin-top:1.2rem;">
-  <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
-  <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts.</div>
+<div data-admin-account-manager-root style="margin-top:1.2rem;">
+  <div class="link-box">
+    <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
+    <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts.</div>
+  </div>
 </div>"""
     protocol_options = ['<option value="all" selected>All</option>']
     for service, label, _icon in SERVICE_META:
@@ -1773,15 +1799,15 @@ def render_admin_account_manager():
         )
     return (
         """
-<div style="margin-top:1.2rem;">
+<div style="margin-top:1.2rem;" data-admin-account-manager-root>
   <div style="font-weight:700;margin-bottom:.4rem;">Account Manager</div>
   <div style="color:var(--text-secondary);margin-bottom:.4rem;">Review live SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts on every connected backend, remove accounts instantly, or set a new expiration in days from now.</div>
   <div class="link-box" style="margin-top:1rem;">
     <form style="margin:0;align-items:flex-start;">
       <div class="form-group" style="margin:0;align-items:flex-start;text-align:left;">
-        <label class="form-label" for="admin-protocol-filter" style="margin-bottom:.55rem;text-align:left;max-width:none;"><i class="fa-solid fa-filter"></i> Sort by Protocol</label>
+        <label class="form-label" style="margin-bottom:.55rem;text-align:left;max-width:none;"><i class="fa-solid fa-filter"></i> Sort by Protocol</label>
         <div class="form-input-container" style="justify-content:flex-start;max-width:320px;">
-          <select id="admin-protocol-filter" style="max-width:none;">
+          <select data-admin-protocol-filter style="max-width:none;">
             """
         + "".join(protocol_options)
         + """
@@ -1793,46 +1819,7 @@ def render_admin_account_manager():
   """
         + "".join(sections)
         + """
-<script>
-(function(){
-  const select=document.getElementById('admin-protocol-filter');
-  if(!select)return;
-  const sections=Array.from(document.querySelectorAll('[data-admin-account-section]'));
-  function applyProtocolFilter(){
-    const wanted=String(select.value||'all').toLowerCase();
-    sections.forEach(section=>{
-      const cards=Array.from(section.querySelectorAll('[data-admin-account-card]'));
-      const summaries=Array.from(section.querySelectorAll('[data-admin-service-summary]'));
-      let visibleCount=0;
-      cards.forEach(card=>{
-        const service=String(card.getAttribute('data-service')||'').toLowerCase();
-        const show=wanted==='all'||service===wanted;
-        card.style.display=show?'flex':'none';
-        if(show)visibleCount+=1;
-      });
-      summaries.forEach(summary=>{
-        const service=String(summary.getAttribute('data-service')||'').toLowerCase();
-        summary.style.display=(wanted==='all'||service===wanted)?'':'none';
-      });
-      const grid=section.querySelector('[data-admin-account-grid]');
-      if(grid)grid.style.display=visibleCount>0?'grid':'none';
-      const emptyState=section.querySelector('[data-admin-account-filter-empty]');
-      if(emptyState)emptyState.style.display=wanted!=='all'&&cards.length>0&&visibleCount===0?'':'none';
-      const totalNode=section.querySelector('[data-admin-account-visible-total]');
-      if(totalNode)totalNode.textContent=String(wanted==='all'?cards.length:visibleCount);
-      const labelNode=section.querySelector('[data-admin-account-count-label]');
-      if(labelNode)labelNode.textContent=wanted==='all'?'total':'shown';
-      if(cards.length>0){
-        section.style.display=(wanted==='all'||visibleCount>0)?'':'none';
-      }else{
-        section.style.display=wanted==='all'?'':'none';
-      }
-    });
-  }
-  select.addEventListener('change',applyProtocolFilter);
-  applyProtocolFilter();
-})();
-</script></div>"""
+</div>"""
     )
 
 
@@ -3465,7 +3452,9 @@ def render_vless_bypass_admin():
 
 def render_admin_stats_panel():
     visits = load_visits()
-    counters = load_backend_summary_counters(force=True) if backend_configured() else _empty_backend_summary()
+    counters = get_cached_backend_summary_counters() if backend_configured() else _empty_backend_summary()
+    if not counters:
+        counters = _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     ssh_online_users = max(int((counters or {}).get("ssh_online_users", 0) or 0), 0)
     openvpn_online_users = max(int((counters or {}).get("openvpn_online_users", 0) or 0), 0)
@@ -3497,10 +3486,6 @@ updateAdminStats();setInterval(updateAdminStats,5000);
 
 
 def render_admin_online_breakdown_panel():
-    breakdown = load_admin_backend_online_breakdown(force=True)
-    totals = breakdown.get("totals", {}) if isinstance(breakdown, dict) else {}
-    servers = list((breakdown or {}).get("servers", [])) if isinstance(breakdown, dict) else []
-
     def build_card(backend_id, label, host_text, ssh_online, openvpn_online, error_text=""):
         total_online = max(int(ssh_online or 0), 0) + max(int(openvpn_online or 0), 0)
         error_text = str(error_text or "").strip()
@@ -3538,20 +3523,20 @@ def render_admin_online_breakdown_panel():
             "__total__",
             "Total Online",
             "All connected servers",
-            totals.get("ssh_online_users", 0),
-            totals.get("openvpn_online_users", 0),
+            0,
+            0,
             "",
         )
     ]
-    for server in servers:
+    for backend in load_backends():
         cards.append(
             build_card(
-                server.get("backend_id", ""),
-                server.get("backend_label", "Unknown"),
-                server.get("backend_host", ""),
-                server.get("ssh_online_users", 0),
-                server.get("openvpn_online_users", 0),
-                server.get("error", ""),
+                backend.get("id", ""),
+                admin_backend_label(backend),
+                backend_host(backend),
+                0,
+                0,
+                "",
             )
         )
     return """
@@ -3620,9 +3605,75 @@ def render_admin(success=None, error=None):
 </div></div>""")
     expiry = get_create_account_expiry()
     bypass_editor_html = render_vless_bypass_admin()
-    account_manager_html = render_admin_account_manager()
     admin_stats_html = render_admin_stats_panel()
     admin_online_breakdown_html = render_admin_online_breakdown_panel()
+    account_manager_html = """
+<div id="admin-account-manager-shell" style="margin-top:1.2rem;">
+  <div class="link-box">
+    <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
+    <div style="color:var(--text-secondary);">Loading accounts from connected servers...</div>
+  </div>
+</div>
+<script>
+window.initAdminAccountManager = window.initAdminAccountManager || function(root){
+  root = root || document.querySelector('[data-admin-account-manager-root]');
+  if(!root)return;
+  const select = root.querySelector('[data-admin-protocol-filter]');
+  if(!select || select.dataset.bound === '1')return;
+  select.dataset.bound = '1';
+  const sections = Array.from(root.querySelectorAll('[data-admin-account-section]'));
+  function applyProtocolFilter(){
+    const wanted = String(select.value || 'all').toLowerCase();
+    sections.forEach(section => {
+      const cards = Array.from(section.querySelectorAll('[data-admin-account-card]'));
+      const summaries = Array.from(section.querySelectorAll('[data-admin-service-summary]'));
+      let visibleCount = 0;
+      cards.forEach(card => {
+        const service = String(card.getAttribute('data-service') || '').toLowerCase();
+        const show = wanted === 'all' || service === wanted;
+        card.style.display = show ? 'flex' : 'none';
+        if(show)visibleCount += 1;
+      });
+      summaries.forEach(summary => {
+        const service = String(summary.getAttribute('data-service') || '').toLowerCase();
+        summary.style.display = (wanted === 'all' || service === wanted) ? '' : 'none';
+      });
+      const grid = section.querySelector('[data-admin-account-grid]');
+      if(grid)grid.style.display = visibleCount > 0 ? 'grid' : 'none';
+      const emptyState = section.querySelector('[data-admin-account-filter-empty]');
+      if(emptyState)emptyState.style.display = wanted !== 'all' && cards.length > 0 && visibleCount === 0 ? '' : 'none';
+      const totalNode = section.querySelector('[data-admin-account-visible-total]');
+      if(totalNode)totalNode.textContent = String(wanted === 'all' ? cards.length : visibleCount);
+      const labelNode = section.querySelector('[data-admin-account-count-label]');
+      if(labelNode)labelNode.textContent = wanted === 'all' ? 'total' : 'shown';
+      if(cards.length > 0){
+        section.style.display = (wanted === 'all' || visibleCount > 0) ? '' : 'none';
+      }else{
+        section.style.display = wanted === 'all' ? '' : 'none';
+      }
+    });
+  }
+  select.addEventListener('change', applyProtocolFilter);
+  applyProtocolFilter();
+};
+(function(){
+  const shell = document.getElementById('admin-account-manager-shell');
+  if(!shell)return;
+  function showError(){
+    shell.innerHTML = '<div class="link-box"><div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div><div style="color:var(--error);">Failed to load account manager right now.</div></div>';
+  }
+  function loadAccountManager(){
+    fetch('/admin/account-manager-fragment?t=' + Date.now(), {cache:'no-store'})
+      .then(r => r.ok ? r.text() : Promise.reject(new Error('request failed')))
+      .then(html => {
+        shell.innerHTML = html;
+        window.initAdminAccountManager(shell.querySelector('[data-admin-account-manager-root]'));
+      })
+      .catch(() => showError());
+  }
+  setTimeout(loadAccountManager, 0);
+})();
+</script>"""
     events = recent_admin_events(8)
     event_cards = "".join(
         f'<div class="link-box"><div style="font-weight:700">{html.escape(e["action"].replace("_"," ").title())}</div><div style="color:var(--text-muted);font-size:.9rem">{html.escape(e["time"])} | {html.escape(e["status"])}</div><div style="margin-top:.5rem">{html.escape(json.dumps(e.get("details", {})))}</div></div>'
@@ -3735,7 +3786,7 @@ def main_stats():
     visits = load_visits()
     requested_scope = str(request.args.get("scope", "") or "").strip().lower()
     if requested_scope == "all":
-        online_stats = load_backend_summary_counters(force=True)
+        online_stats = load_backend_summary_counters(force=False)
         online_stats["scope"] = "all"
         online_stats["scope_label"] = "All Servers"
         online_stats["scope_note"] = "All connected servers" if backend_configured() else "No backend connected"
@@ -3949,13 +4000,22 @@ def admin_page():
     return render_admin(request.args.get("success"), request.args.get("error"))
 
 
+@app.get("/admin/account-manager-fragment")
+def admin_account_manager_fragment():
+    if not session.get("admin_authenticated"):
+        return Response("unauthorized", status=401, mimetype="text/plain")
+    response = Response(render_admin_account_manager(force=False), mimetype="text/html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
+
+
 @app.get("/admin/online-breakdown")
 def admin_online_breakdown():
     if not session.get("admin_authenticated"):
         response = jsonify({"ok": False, "error": "unauthorized"})
         response.status_code = 401
         return response
-    response = jsonify(load_admin_backend_online_breakdown(force=True))
+    response = jsonify(load_admin_backend_online_breakdown(force=False))
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
@@ -4008,6 +4068,7 @@ def admin_post():
                 payload={"service": service, "username": username, "days": day_value},
                 method="POST",
             )
+            clear_admin_account_groups_cache()
             log_admin_event("update_account_expiry", "success", {"backend_id": backend_id, "service": service, "username": username, "days": day_value})
             return redirect("/admin?success=" + urllib.parse.quote(f"Expiration updated for {username}."), code=303)
         except Exception as exc:
@@ -4028,6 +4089,7 @@ def admin_post():
                 payload={"service": service, "username": username},
                 method="POST",
             )
+            clear_admin_account_groups_cache()
             log_admin_event("delete_account", "success", {"backend_id": backend_id, "service": service, "username": username})
             return redirect("/admin?success=" + urllib.parse.quote(f"Removed {username} from {service.upper()}."), code=303)
         except Exception as exc:
