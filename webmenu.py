@@ -664,7 +664,6 @@ def load_backend_summary_counters(force=False):
         for _backend, future in futures:
             try:
                 extracted = future.result()
-                counters["online_users"] += extracted["online_users"]
                 counters["total_accounts"] += extracted["total_accounts"]
                 counters["ssh_online_users"] += extracted["ssh_online_users"]
                 counters["openvpn_online_users"] += extracted["openvpn_online_users"]
@@ -672,6 +671,7 @@ def load_backend_summary_counters(force=False):
                 successful = True
             except Exception:
                 continue
+    counters["online_users"] = counters["ssh_online_users"] + counters["openvpn_online_users"]
     counters["online_entries"] = _sort_online_entries(counters["online_entries"])
     if successful:
         with backend_summary_lock:
@@ -2424,15 +2424,6 @@ def _sort_online_entries(entries):
 
 def extract_backend_status_summary(payload, backend=None):
     for candidate in _status_payload_candidates(payload):
-        online_users = _pick_first(
-            candidate,
-            "online_users",
-            "onlineUsers",
-            "active_users",
-            "activeUsers",
-            "users_online",
-            "usersOnline",
-        )
         total_accounts = _pick_first(
             candidate,
             "total_accounts",
@@ -2473,22 +2464,15 @@ def extract_backend_status_summary(payload, backend=None):
                 normalized_entry = _normalize_backend_online_entry(raw_entry, backend=backend)
                 if normalized_entry:
                     online_entries.append(normalized_entry)
-        if ssh_online_users in (None, "") and online_entries:
-            ssh_online_users = sum(1 for entry in online_entries if entry.get("service") == "ssh")
-        if openvpn_online_users in (None, "") and online_entries:
-            openvpn_online_users = sum(1 for entry in online_entries if entry.get("service") == "openvpn")
-        if online_users in (None, ""):
-            if ssh_online_users not in (None, "") or openvpn_online_users not in (None, ""):
-                online_users = _coerce_non_negative_int(ssh_online_users) + _coerce_non_negative_int(openvpn_online_users)
-            elif online_entries:
-                online_users = len(online_entries)
-        if online_entries:
-            online_users = max(_coerce_non_negative_int(online_users), len(online_entries))
+        has_online_fields = ssh_online_users not in (None, "") or openvpn_online_users not in (None, "")
+        entry_ssh_online_users = sum(1 for entry in online_entries if entry.get("service") == "ssh")
+        entry_openvpn_online_users = sum(1 for entry in online_entries if entry.get("service") == "openvpn")
+        ssh_online_users = max(_coerce_non_negative_int(ssh_online_users), entry_ssh_online_users)
+        openvpn_online_users = max(_coerce_non_negative_int(openvpn_online_users), entry_openvpn_online_users)
+        online_users = ssh_online_users + openvpn_online_users
         if (
-            online_users in (None, "")
+            not has_online_fields
             and total_accounts in (None, "")
-            and ssh_online_users in (None, "")
-            and openvpn_online_users in (None, "")
             and not online_entries
         ):
             continue
@@ -3518,21 +3502,26 @@ def render_admin_stats_panel():
     visits = load_visits()
     counters = load_backend_summary_counters(force=False) if backend_configured() else _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
-    online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
-    online_scope_note = "All connected servers" if backend_configured() else "No backend connected"
+    ssh_online_users = max(int((counters or {}).get("ssh_online_users", 0) or 0), 0)
+    openvpn_online_users = max(int((counters or {}).get("openvpn_online_users", 0) or 0), 0)
+    online_users = ssh_online_users + openvpn_online_users
+    if online_users <= 0:
+        online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
+    online_scope_note = "SSH + OpenVPN across all connected servers" if backend_configured() else "No backend connected"
+    online_breakdown = f"SSH {ssh_online_users} + OpenVPN {openvpn_online_users}"
     return render_template_string(
         """
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.6rem;">Panel Stats</div>
   <div class="stats-container" style="margin:0;">
     <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="admin-total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
-    <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="admin-online-users">{{ online_users }}</div><div class="stat-label">Online Users</div><div id="admin-online-users-scope" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_scope_note }}</div></div></div>
+    <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="admin-online-users">{{ online_users }}</div><div class="stat-label">Online Users</div><div id="admin-online-users-scope" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_scope_note }}</div><div id="admin-online-users-breakdown" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_breakdown }}</div></div></div>
     <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="admin-total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
   </div>
 </div>
 <script>
 const adminStatsState={visits:parseInt((document.getElementById('admin-total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('admin-total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('admin-online-users')||{}).textContent||'0',10)||0};
-function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);if(Number.isFinite(online))adminStatsState.online=Math.max(0, online);document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;}).catch(()=>{});}
+function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const sshOnline=Number(data&&data.ssh_online_users);const openvpnOnline=Number(data&&data.openvpn_online_users);const fallbackOnline=Number(data&&data.online_users);const combinedOnline=Math.max(0,(Number.isFinite(sshOnline)?sshOnline:0)+(Number.isFinite(openvpnOnline)?openvpnOnline:0));const online=combinedOnline>0||!Number.isFinite(fallbackOnline)?combinedOnline:Math.max(0,fallbackOnline);const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);if(Number.isFinite(online))adminStatsState.online=Math.max(0, online);document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;const onlineBreakdownNode=document.getElementById('admin-online-users-breakdown');if(onlineBreakdownNode)onlineBreakdownNode.textContent='SSH '+(Number.isFinite(sshOnline)?Math.max(0,sshOnline):0)+' + OpenVPN '+(Number.isFinite(openvpnOnline)?Math.max(0,openvpnOnline):0);}).catch(()=>{});}
 updateAdminStats();setInterval(updateAdminStats,5000);
 </script>
 """,
@@ -3540,6 +3529,7 @@ updateAdminStats();setInterval(updateAdminStats,5000);
         online_users=online_users,
         total_accounts=total_accounts,
         online_scope_note=online_scope_note,
+        online_breakdown=online_breakdown,
     )
 
 
@@ -3751,11 +3741,16 @@ def main_stats():
         online_stats = load_main_online_stats(force=False)
     counters = load_backend_summary_counters(force=False)
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
+    ssh_online_users = max(int(online_stats.get("ssh_online_users", 0) or 0), 0)
+    openvpn_online_users = max(int(online_stats.get("openvpn_online_users", 0) or 0), 0)
+    online_users = ssh_online_users + openvpn_online_users
+    if online_users <= 0:
+        online_users = max(int(online_stats.get("online_users", 0) or 0), 0)
     response = jsonify(
         {
-            "online_users": online_stats["online_users"],
-            "ssh_online_users": online_stats.get("ssh_online_users", 0),
-            "openvpn_online_users": online_stats.get("openvpn_online_users", 0),
+            "online_users": online_users,
+            "ssh_online_users": ssh_online_users,
+            "openvpn_online_users": openvpn_online_users,
             "online_entries": online_stats.get("online_entries", []),
             "online_scope": online_stats.get("scope", "all"),
             "online_scope_label": online_stats.get("scope_label", "All Servers"),
