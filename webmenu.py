@@ -1542,7 +1542,7 @@ def load_saved_backend_installer_script():
 
 
 def load_effective_backend_installer_script():
-    return load_saved_backend_installer_script() or load_backend_installer_script()
+    return load_saved_backend_installer_script()
 
 
 def save_backend_installer_script(raw_script):
@@ -3546,9 +3546,8 @@ updateAdminStats();setInterval(updateAdminStats,5000);
 def render_admin_backend_update_panel():
     backends = load_backends()
     saved_script = load_saved_backend_installer_script()
-    effective_script = saved_script or load_backend_installer_script()
-    script_source_note = "Using saved admin backend.sh script." if saved_script else "Using local backend.sh bundled with this deployment."
-    script_text = html.escape(effective_script)
+    script_source_note = "Saved script is ready for update actions." if saved_script else "No saved script yet. Paste your own backend.sh below."
+    script_text = ""
     if not backends:
         return """
 <div class="link-box" style="margin-top:1.2rem;">
@@ -3584,7 +3583,7 @@ def render_admin_backend_update_panel():
         """
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.4rem;">Backend Updates</div>
-  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Paste or edit the <code>backend.sh</code> script here, save it in the panel, then push it to one server or all connected servers without logging in over SSH.</div>
+  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Paste your own <code>backend.sh</code> script here, save it in the panel, then push it to one server or all connected servers without logging in over SSH.</div>
   <div class="link-box" style="margin-top:1rem;">
     <form method="POST" action="/admin" style="margin:0;align-items:stretch;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:.7rem;">
@@ -4044,7 +4043,7 @@ def admin_post():
         script = load_effective_backend_installer_script()
         if not script:
             log_admin_event("update_backend", "failed", {"backend_id": backend_id, "reason": "missing installer"})
-            return redirect("/admin?error=" + urllib.parse.quote("backend.sh script could not be loaded."), code=303)
+            return redirect("/admin?error=" + urllib.parse.quote("No saved backend.sh script yet. Paste and save one first."), code=303)
         try:
             backend_request_for(
                 backend,
@@ -4092,7 +4091,7 @@ def admin_post():
         script = load_effective_backend_installer_script()
         if not script:
             log_admin_event("update_all_backends", "failed", {"reason": "missing installer"})
-            return redirect("/admin?error=" + urllib.parse.quote("backend.sh script could not be loaded."), code=303)
+            return redirect("/admin?error=" + urllib.parse.quote("No saved backend.sh script yet. Paste and save one first."), code=303)
         successes, failures = trigger_all_backend_updates(script)
         if successes and not failures:
             log_admin_event("update_all_backends", "success", {"count": len(successes)})
