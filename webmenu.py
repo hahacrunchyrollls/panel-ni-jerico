@@ -2770,28 +2770,6 @@ def render_selected_server_note(change_href="/main", include_change=True, margin
     )
 
 
-def render_selected_server_latency_card(margin_style="margin:-.2rem auto 1.2rem auto;"):
-    current_backend = explicitly_selected_backend()
-    if not current_backend:
-        return ""
-    backend_id = html.escape(str(current_backend.get("id", "") or "").strip(), quote=True)
-    display_label = html.escape(backend_display_label(current_backend))
-    host_label = html.escape(backend_host(current_backend))
-    return f"""
-<div class="link-box" style="{margin_style}max-width:760px;">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;text-align:left;">
-    <div style="min-width:0;">
-      <div style="font-weight:800;color:var(--primary-color);">Your Latency to Selected Server</div>
-      <div style="color:var(--text-muted);font-size:.92rem;">{display_label} | {host_label}</div>
-    </div>
-    <div class="server-card-health is-checking" data-server-health data-backend-id="{backend_id}" style="margin-top:0;">
-      <span class="server-card-health-dot"></span>
-      <span data-server-health-text>Checking your latency...</span>
-    </div>
-  </div>
-</div>"""
-
-
 def render_server_selector(redirect_to="/services", show_header=True):
     backends = load_backends()
     if not backends:
@@ -2874,7 +2852,6 @@ def render_home():
     enabled = backend_configured()
     selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
-    selected_latency_html = render_selected_server_latency_card()
     continue_html = ""
     if enabled and has_explicit_backend_selection():
         continue_html = """
@@ -2896,7 +2873,6 @@ def render_home():
     </div>
     {{ selector_html|safe }}
     {{ current_server_note|safe }}
-    {{ selected_latency_html|safe }}
     {% if page_error %}
     <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
       <i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i>
@@ -2928,7 +2904,6 @@ updateServerHealth();setInterval(updateServerHealth,15000);
 """,
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
-            selected_latency_html=Markup(selected_latency_html),
             continue_html=Markup(continue_html),
             page_error=page_error,
             backend_ready=enabled,
