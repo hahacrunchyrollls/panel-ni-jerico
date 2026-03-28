@@ -44,6 +44,9 @@ SERVER_HEALTH_TIMEOUT = 2
 REMOTE_PANEL_CONFIG_CACHE_TTL = 15
 REMOTE_PANEL_STATE_CACHE_TTL = 3
 BACKEND_SUMMARY_CACHE_TTL = 5
+BACKEND_STATUS_SUMMARY_CACHE_TTL = 5
+BACKEND_LOCATION_CACHE_TTL = 3600
+PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 
 SERVICE_META = [
@@ -88,6 +91,12 @@ backend_summary_cache = {
         "online_entries": [],
     },
 }
+backend_status_summary_lock = threading.Lock()
+backend_status_summary_cache = {}
+backend_location_lock = threading.Lock()
+backend_location_cache = {}
+panel_visit_sync_lock = threading.Lock()
+panel_visit_sync_cache = {"last_synced_at": 0.0}
 
 app = Flask(__name__)
 app.url_map.strict_slashes = False
@@ -601,6 +610,38 @@ def mutate_remote_panel_state(path, payload=None):
     return state
 
 
+def _backend_cache_key(backend):
+    backend = backend or {}
+    return str(backend.get("id") or backend.get("api_url") or backend.get("lookup") or backend.get("label") or "").strip()
+
+
+def load_backend_status_summary(backend, force=False):
+    backend_key = _backend_cache_key(backend)
+    if not backend_key:
+        data = backend_request_for(backend, "/status", payload=None, method="GET")
+        return extract_backend_status_summary(data, backend=backend)
+    now = time.time()
+    with backend_status_summary_lock:
+        cached = backend_status_summary_cache.get(backend_key)
+        if cached and not force and now - float(cached.get("loaded_at", 0.0) or 0.0) < BACKEND_STATUS_SUMMARY_CACHE_TTL:
+            return _clone(cached.get("summary", _empty_backend_summary()))
+    data = backend_request_for(backend, "/status", payload=None, method="GET")
+    summary = extract_backend_status_summary(data, backend=backend)
+    with backend_status_summary_lock:
+        backend_status_summary_cache[backend_key] = {"loaded_at": time.time(), "summary": _clone(summary)}
+    return summary
+
+
+def should_sync_panel_visit():
+    now = time.time()
+    with panel_visit_sync_lock:
+        last_synced_at = float(panel_visit_sync_cache.get("last_synced_at", 0.0) or 0.0)
+        if now - last_synced_at < PANEL_VISIT_SYNC_MIN_INTERVAL:
+            return False
+        panel_visit_sync_cache["last_synced_at"] = now
+        return True
+
+
 def load_backend_summary_counters(force=False):
     if not backend_configured():
         return _empty_backend_summary()
@@ -612,18 +653,21 @@ def load_backend_summary_counters(force=False):
             return _clone(cached)
     counters = _empty_backend_summary()
     successful = False
-    for backend in load_backends():
-        try:
-            data = backend_request_for(backend, "/status", payload=None, method="GET")
-            extracted = extract_backend_status_summary(data, backend=backend)
-            counters["online_users"] += extracted["online_users"]
-            counters["total_accounts"] += extracted["total_accounts"]
-            counters["ssh_online_users"] += extracted["ssh_online_users"]
-            counters["openvpn_online_users"] += extracted["openvpn_online_users"]
-            counters["online_entries"].extend(extracted["online_entries"])
-            successful = True
-        except Exception:
-            continue
+    backends = load_backends()
+    max_workers = max(1, min(6, len(backends)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [(backend, executor.submit(load_backend_status_summary, backend, force)) for backend in backends]
+        for _backend, future in futures:
+            try:
+                extracted = future.result()
+                counters["online_users"] += extracted["online_users"]
+                counters["total_accounts"] += extracted["total_accounts"]
+                counters["ssh_online_users"] += extracted["ssh_online_users"]
+                counters["openvpn_online_users"] += extracted["openvpn_online_users"]
+                counters["online_entries"].extend(extracted["online_entries"])
+                successful = True
+            except Exception:
+                continue
     counters["online_entries"] = _sort_online_entries(counters["online_entries"])
     if successful:
         with backend_summary_lock:
@@ -653,11 +697,10 @@ def load_main_online_stats(force=False):
     selected = explicitly_selected_backend()
     if selected:
         try:
-            data = backend_request_for(selected, "/status", payload=None, method="GET")
-            summary = extract_backend_status_summary(data, backend=selected)
+            summary = load_backend_status_summary(selected, force=force)
             summary["scope"] = "selected"
             summary["scope_label"] = backend_display_label(selected)
-            summary["scope_note"] = "Selected server"
+            summary["scope_note"] = f"Selected: {backend_display_label(selected)}"
             return summary
         except Exception:
             pass
@@ -941,7 +984,7 @@ def get_all_backend_health_statuses(force=False):
     return statuses
 
 
-def _backend_base_display_label(backend=None):
+def _backend_base_display_label(backend=None, backend_geo=None):
     backend = backend or selected_backend()
     if not backend:
         return "Unknown"
@@ -954,7 +997,7 @@ def _backend_base_display_label(backend=None):
         or re.fullmatch(r"server[_\-\s]*\d+", raw_label, flags=re.IGNORECASE) is not None
     )
     if generic_label:
-        backend_geo = backend_location(backend)
+        backend_geo = backend_geo or backend_location(backend)
         country = str(backend.get("country") or backend_geo.get("country") or "").strip()
         if country and country.lower() != "unknown":
             return country
@@ -964,24 +1007,36 @@ def _backend_base_display_label(backend=None):
     return raw_label or backend_id or backend_host(backend)
 
 
+def build_backend_display_labels(backends=None, backend_locations=None):
+    backends = list(backends or load_backends())
+    backend_locations = backend_locations or {}
+    base_labels = {}
+    duplicate_totals = {}
+    for backend in backends:
+        backend_id = str(backend.get("id", "")).strip()
+        base_label = _backend_base_display_label(backend, backend_locations.get(backend_id))
+        base_labels[backend_id] = base_label
+        duplicate_totals[base_label] = int(duplicate_totals.get(base_label, 0) or 0) + 1
+    labels = {}
+    seen_per_label = {}
+    for backend in backends:
+        backend_id = str(backend.get("id", "")).strip()
+        base_label = base_labels.get(backend_id, "Unknown")
+        if duplicate_totals.get(base_label, 0) <= 1:
+            labels[backend_id] = base_label
+            continue
+        seen_per_label[base_label] = int(seen_per_label.get(base_label, 0) or 0) + 1
+        labels[backend_id] = f"{base_label} {seen_per_label[base_label]}"
+    return labels
+
+
 def backend_display_label(backend=None):
     backend = backend or selected_backend()
     if not backend:
         return "Unknown"
-    base_label = _backend_base_display_label(backend)
-    if not base_label or base_label == "Unknown":
-        return base_label or "Unknown"
     backend_id = str(backend.get("id", "")).strip()
-    matching_backends = []
-    for item in load_backends():
-        if _backend_base_display_label(item) == base_label:
-            matching_backends.append(item)
-    if len(matching_backends) <= 1:
-        return base_label
-    for index, item in enumerate(matching_backends, start=1):
-        if str(item.get("id", "")).strip() == backend_id:
-            return f"{base_label} {index}"
-    return base_label
+    labels = build_backend_display_labels()
+    return str(labels.get(backend_id) or _backend_base_display_label(backend) or "Unknown")
 
 
 def backend_location(backend=None):
@@ -995,6 +1050,12 @@ def backend_location(backend=None):
     lookup = (backend or {}).get("lookup") or backend_host(backend)
     if not lookup:
         return {"country": "Unknown", "countryCode": "", "city": ""}
+    cache_key = str((backend or {}).get("id") or lookup or "").strip()
+    now = time.time()
+    with backend_location_lock:
+        cached = backend_location_cache.get(cache_key)
+        if cached and now - float(cached.get("loaded_at", 0.0) or 0.0) < BACKEND_LOCATION_CACHE_TTL:
+            return dict(cached.get("location", {"country": "Unknown", "countryCode": "", "city": ""}))
     try:
         if not re.match(r"^\d+\.\d+\.\d+\.\d+$", lookup):
             lookup = socket.gethostbyname(lookup)
@@ -1005,11 +1066,14 @@ def backend_location(backend=None):
             data = json.load(response)
         if data.get("status") != "success":
             return {"country": "Unknown", "countryCode": "", "city": ""}
-        return {
+        location = {
             "country": data.get("country", "Unknown"),
             "countryCode": data.get("countryCode", ""),
             "city": data.get("city", ""),
         }
+        with backend_location_lock:
+            backend_location_cache[cache_key] = {"loaded_at": time.time(), "location": dict(location)}
+        return location
     except Exception:
         return {"country": "Unknown", "countryCode": "", "city": ""}
 
@@ -1259,7 +1323,7 @@ def bump_visit_count():
         keys = sorted(data["daily"].keys())[-14:]
         data["daily"] = {key: data["daily"][key] for key in keys}
         save_json(VISITS_FILE, data)
-    remote_state = mutate_remote_panel_state("/panel-state/visit", {})
+    remote_state = mutate_remote_panel_state("/panel-state/visit", {}) if should_sync_panel_visit() else None
     if remote_state:
         with state_lock:
             data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
@@ -2733,10 +2797,20 @@ def render_server_selector(redirect_to="/services", show_header=True):
     if not backends:
         return ""
     current_id = explicitly_selected_backend_id()
+    backend_locations = {}
+    max_workers = max(1, min(6, len(backends)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [(backend["id"], executor.submit(backend_location, backend)) for backend in backends]
+        for backend_id, future in futures:
+            try:
+                backend_locations[backend_id] = future.result()
+            except Exception:
+                backend_locations[backend_id] = {"country": "Unknown", "countryCode": "", "city": ""}
+    display_labels = build_backend_display_labels(backends=backends, backend_locations=backend_locations)
     server_cards = []
     for backend in backends:
-        backend_geo = backend_location(backend)
-        display_label = backend_display_label(backend)
+        backend_geo = backend_locations.get(backend["id"], {"country": "Unknown", "countryCode": "", "city": ""})
+        display_label = display_labels.get(backend["id"], backend_display_label(backend))
         country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
         city = backend.get("city") or backend_geo.get("city") or ""
         country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
@@ -2798,8 +2872,8 @@ def render_server_selector(redirect_to="/services", show_header=True):
 def render_home():
     visits = bump_visit_count()
     enabled = backend_configured()
-    online_stats = load_main_online_stats(force=True) if enabled else _empty_backend_summary()
-    counters = load_backend_summary_counters(force=True) if enabled else _empty_backend_summary()
+    online_stats = load_main_online_stats(force=False) if enabled else _empty_backend_summary()
+    counters = load_backend_summary_counters(force=False) if enabled else _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     online_users = max(int((online_stats or {}).get("online_users", 0) or 0), 0)
     online_scope_note = str((online_stats or {}).get("scope_note", "") or "").strip()
@@ -3549,8 +3623,8 @@ def status_full():
 @app.get("/main/stats")
 def main_stats():
     visits = load_visits()
-    online_stats = load_main_online_stats(force=True)
-    counters = load_backend_summary_counters(force=True)
+    online_stats = load_main_online_stats(force=False)
+    counters = load_backend_summary_counters(force=False)
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     response = jsonify(
         {
