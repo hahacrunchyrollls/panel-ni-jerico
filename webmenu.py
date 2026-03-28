@@ -3456,32 +3456,23 @@ def render_admin_stats_panel():
     if not counters:
         counters = _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
-    ssh_online_users = max(int((counters or {}).get("ssh_online_users", 0) or 0), 0)
-    openvpn_online_users = max(int((counters or {}).get("openvpn_online_users", 0) or 0), 0)
-    online_users = ssh_online_users + openvpn_online_users
-    online_scope_note = "SSH + OpenVPN across all connected servers" if backend_configured() else "No backend connected"
-    online_breakdown = f"SSH {ssh_online_users} + OpenVPN {openvpn_online_users}"
     return render_template_string(
         """
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.6rem;">Panel Stats</div>
   <div class="stats-container" style="margin:0;">
     <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="admin-total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
-    <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="admin-online-users">{{ online_users }}</div><div class="stat-label">Online Users</div><div id="admin-online-users-scope" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_scope_note }}</div><div id="admin-online-users-breakdown" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_breakdown }}</div></div></div>
     <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="admin-total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
   </div>
 </div>
 <script>
-const adminStatsState={visits:parseInt((document.getElementById('admin-total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('admin-total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('admin-online-users')||{}).textContent||'0',10)||0};
-function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const sshOnline=Number(data&&data.ssh_online_users);const openvpnOnline=Number(data&&data.openvpn_online_users);const online=Math.max(0,(Number.isFinite(sshOnline)?sshOnline:0)+(Number.isFinite(openvpnOnline)?openvpnOnline:0));const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);adminStatsState.online=online;document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;const onlineBreakdownNode=document.getElementById('admin-online-users-breakdown');if(onlineBreakdownNode)onlineBreakdownNode.textContent='SSH '+(Number.isFinite(sshOnline)?Math.max(0,sshOnline):0)+' + OpenVPN '+(Number.isFinite(openvpnOnline)?Math.max(0,openvpnOnline):0);}).catch(()=>{});}
+const adminStatsState={visits:parseInt((document.getElementById('admin-total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('admin-total-accounts')||{}).textContent||'0',10)||0};
+function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;}).catch(()=>{});}
 updateAdminStats();setInterval(updateAdminStats,5000);
 </script>
 """,
         visits=visits.get("total_visits", 0),
-        online_users=online_users,
         total_accounts=total_accounts,
-        online_scope_note=online_scope_note,
-        online_breakdown=online_breakdown,
     )
 
 
