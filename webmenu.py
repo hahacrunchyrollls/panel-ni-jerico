@@ -2851,15 +2851,6 @@ def render_home():
     bump_visit_count()
     enabled = backend_configured()
     selector_html = render_server_selector("/services")
-    current_server_note = render_selected_server_note(include_change=False)
-    continue_html = ""
-    if enabled and has_explicit_backend_selection():
-        continue_html = """
-    <div style="margin:1.5rem auto 0 auto;max-width:420px;">
-      <a href="/services" style="text-decoration:none;display:block;">
-        <button style="width:100%;"><i class="fa-solid fa-layer-group"></i> Continue to Service</button>
-      </a>
-    </div>"""
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
     return render_page(
         "FUJI VPN",
@@ -2872,7 +2863,6 @@ def render_home():
       <h2 class="section-title" style="margin:0;">CHOOSE SERVER</h2>
     </div>
     {{ selector_html|safe }}
-    {{ current_server_note|safe }}
     {% if page_error %}
     <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
       <i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i>
@@ -2885,7 +2875,6 @@ def render_home():
       <div>Set <code>SERVER_BACKENDS_JSON</code>, numbered <code>SERVER_API_URL_1</code> / <code>SERVER_API_TOKEN_1</code> pairs, or <code>SERVER_API_URL</code> / <code>SERVER_API_TOKEN</code> in Vercel to enable account creation.</div>
     </div>
     {% endif %}
-    {{ continue_html|safe }}
   </div>
 </div>
 <script>
@@ -2903,8 +2892,6 @@ updateServerHealth();setInterval(updateServerHealth,15000);
 </script>
 """,
             selector_html=Markup(selector_html),
-            current_server_note=Markup(current_server_note),
-            continue_html=Markup(continue_html),
             page_error=page_error,
             backend_ready=enabled,
         ),
