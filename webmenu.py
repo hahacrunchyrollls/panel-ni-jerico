@@ -3326,6 +3326,9 @@ def render_donate():
 def render_guide_page():
     ssh_icon = service_icon("ssh")
     vless_icon = service_icon("vless")
+    hysteria_icon = service_icon("hysteria")
+    wireguard_icon = service_icon("wireguard")
+    openvpn_icon = service_icon("openvpn")
     current_server_note = render_selected_server_note(change_href="/main", include_change=True, margin_style="margin:0 auto 1.2rem auto;")
     primary_href = "/services" if has_explicit_backend_selection() else "/main"
     primary_label = "Open Services" if has_explicit_backend_selection() else "Choose Server First"
@@ -3338,21 +3341,31 @@ def render_guide_page():
       <i class="fa-solid fa-book-open" style="font-size:1.8em;color:var(--accent-color);"></i>
       <h2 class="section-title" style="margin:0;">GUIDE & FAQ</h2>
     </div>
-    <div style="text-align:center;color:var(--text-secondary);max-width:760px;margin:0 auto 1.2rem auto;">This page explains the full flow for creating an account, using SSH or VLESS in your client app, and fixing the most common connection problems.</div>
+    <div style="text-align:center;color:var(--text-secondary);max-width:760px;margin:0 auto 1.2rem auto;">This page explains the full flow for creating and using SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts, plus the most common fixes when a connection does not work.</div>
     {current_server_note}
     <div class="services-grid" style="margin-bottom:1.2rem;">
       <a href="#quick-start" style="text-decoration:none;color:inherit;"><div class="service-item" style="scroll-margin-top:110px;"><div class="link-title"><i class="fa-solid fa-rocket"></i> Quick Start</div><div style="color:var(--text-secondary);">The fastest path from server selection to a working account.</div></div></a>
       <a href="#ssh-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{ssh_icon}" style="height:1.05em;"> How To Use SSH</div><div style="color:var(--text-secondary);">What details to copy and where to place them in an SSH tunnel app.</div></div></a>
       <a href="#vless-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{vless_icon}" style="height:1.05em;"> How To Use VLESS</div><div style="color:var(--text-secondary);">When to use TLS or Non-TLS and how to import your VLESS link.</div></div></a>
+      <a href="#hysteria-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{hysteria_icon}" style="height:1.05em;"> How To Use Hysteria</div><div style="color:var(--text-secondary);">How to use the generated Hysteria link and what to do with obfs or legacy URI output.</div></div></a>
+      <a href="#wireguard-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{wireguard_icon}" style="height:1.05em;"> How To Use WireGuard</div><div style="color:var(--text-secondary);">Import the config, scan the QR code, and start the tunnel correctly.</div></div></a>
+      <a href="#openvpn-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{openvpn_icon}" style="height:1.05em;"> How To Use OpenVPN</div><div style="color:var(--text-secondary);">Download the OVPN file, import it, and connect using the right credentials.</div></div></a>
       <a href="#faq" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> FAQ</div><div style="color:var(--text-secondary);">Simple answers for limits, errors, expired accounts, and failed connections.</div></div></a>
     </div>
     <div id="quick-start" class="link-box" style="scroll-margin-top:110px;">
       <div class="link-title"><i class="fa-solid fa-rocket"></i> Quick Start</div>
       <div class="status-grid-2">
         <div class="status-card" style="padding:.95rem;"><div class="status-label">1. Choose a Server</div><div style="font-weight:700;">Pick the country or server you want on the Home page, then open Services.</div></div>
-        <div class="status-card" style="padding:.95rem;"><div class="status-label">2. Create an Account</div><div style="font-weight:700;">Choose SSH or VLESS and create an account using your preferred username.</div></div>
-        <div class="status-card" style="padding:.95rem;"><div class="status-label">3. Copy the Details</div><div style="font-weight:700;">Use the result page as your source of truth for host, username, password, ports, or VLESS link.</div></div>
-        <div class="status-card" style="padding:.95rem;"><div class="status-label">4. Import or Fill Your App</div><div style="font-weight:700;">Paste the generated link for VLESS, or manually enter the SSH details in your tunnel app.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">2. Create an Account</div><div style="font-weight:700;">Choose the protocol you need, then create the account using your preferred username.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">3. Copy the Details</div><div style="font-weight:700;">Use the result page as your source of truth for host, username, password, links, QR code, or config files.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">4. Import or Fill Your App</div><div style="font-weight:700;">Paste the generated link, scan the QR code, or import the downloaded config depending on the protocol you selected.</div></div>
+      </div>
+      <div class="info-grid" style="margin-top:1rem;">
+        <div>SSH:</div><div>Best for apps that ask for host, username, password, and manual transport settings.</div>
+        <div>VLESS:</div><div>Best when your app supports VLESS or Xray link import and you want a fast copy-paste setup.</div>
+        <div>Hysteria:</div><div>Best when your client supports Hysteria links and your setup expects the generated URI format.</div>
+        <div>WireGuard:</div><div>Best when you want to import a config file or scan a QR code directly into the WireGuard app.</div>
+        <div>OpenVPN:</div><div>Best when your app imports `.ovpn` files and you prefer the standard OpenVPN client flow.</div>
       </div>
       <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:1rem;">
         <a href="{primary_href}" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-right"></i> {primary_label}</button></a>
@@ -3411,16 +3424,85 @@ def render_guide_page():
         <div>If connection fails:</div><div>Check the selected server status, verify the account is not expired, and confirm your device date and time are correct.</div>
       </div>
     </div>
+    <div id="hysteria-guide" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><img src="{hysteria_icon}" style="height:1.05em;"> How To Use Hysteria</div>
+      <div style="color:var(--text-secondary);margin-bottom:1rem;">The panel gives you a Hysteria link, and sometimes also a legacy URI. Use the main link first unless your client specifically needs the legacy format.</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">What You Get</div>
+          <div style="font-weight:700;">A ready-to-use Hysteria link and the obfs value when the backend provides one.</div>
+        </div>
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">Best Practice</div>
+          <div style="font-weight:700;">Import the generated link directly instead of rebuilding the profile by hand whenever your app allows it.</div>
+        </div>
+      </div>
+      <div class="services-grid" style="margin-top:1rem;">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 1</div><div>Create a Hysteria account and copy the main Hysteria link from the result page.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 2</div><div>Open your Hysteria-compatible app and use its import feature if it can accept a URI or clipboard link.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 3</div><div>If the app asks for obfs, keep the exact value provided by the panel and do not replace it with a random string.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 4</div><div>Use the legacy Hysteria URI only when your chosen app clearly says it needs the older format.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 5</div><div>Save the profile, connect, and switch servers or recreate the account only if the client still rejects the imported configuration.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 6</div><div>If it still fails, check server status first, then verify that your client really supports the Hysteria version used by the generated link.</div></div>
+      </div>
+    </div>
+    <div id="wireguard-guide" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><img src="{wireguard_icon}" style="height:1.05em;"> How To Use WireGuard</div>
+      <div style="color:var(--text-secondary);margin-bottom:1rem;">WireGuard is the easiest to deploy when your app accepts a `.conf` file or QR code. The panel already prepares both when available.</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">What You Get</div>
+          <div style="font-weight:700;">A downloadable WireGuard config, endpoint information, client IP, and usually a QR code.</div>
+        </div>
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">Best Practice</div>
+          <div style="font-weight:700;">Prefer importing the generated config or scanning the QR code instead of manually typing keys and tunnel settings.</div>
+        </div>
+      </div>
+      <div class="services-grid" style="margin-top:1rem;">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 1</div><div>Create a WireGuard account and keep the result page open.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 2</div><div>If your device supports QR import, scan the QR code directly using the WireGuard app.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 3</div><div>If QR import is not available, download the `.conf` file and import it into your WireGuard client.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 4</div><div>Check that the endpoint and client IP shown by the app match the imported profile.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 5</div><div>Turn the tunnel on and allow VPN permission if your device asks for it.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 6</div><div>If the QR code is missing, use the config file instead. That is a normal fallback and should still work.</div></div>
+      </div>
+    </div>
+    <div id="openvpn-guide" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><img src="{openvpn_icon}" style="height:1.05em;"> How To Use OpenVPN</div>
+      <div style="color:var(--text-secondary);margin-bottom:1rem;">OpenVPN uses the downloaded `.ovpn` file from the result page. Some clients also ask for username and password after import, so keep those details ready.</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">What You Get</div>
+          <div style="font-weight:700;">A downloadable OVPN profile plus your account username, password, and server domain on the result page.</div>
+        </div>
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">Best Practice</div>
+          <div style="font-weight:700;">Import the generated file first, then only enter username and password if the client prompts for them.</div>
+        </div>
+      </div>
+      <div class="services-grid" style="margin-top:1rem;">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 1</div><div>Create an OpenVPN account and download the `.ovpn` file from the result page.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 2</div><div>Open your OpenVPN app and import the downloaded file instead of creating the connection manually.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 3</div><div>If the app asks for login credentials, enter the username and password shown by the panel.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 4</div><div>Save the profile, allow VPN permission if prompted, and start the connection.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 5</div><div>If import succeeds but connection fails, verify the server is online and confirm you are using the latest file generated for that account.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 6</div><div>Do not edit the `.ovpn` file unless you fully understand the setting you are changing.</div></div>
+      </div>
+    </div>
     <div id="faq" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
       <div class="link-title"><i class="fa-solid fa-circle-question"></i> FAQ</div>
       <div class="services-grid">
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Which server should I choose?</div><div>Choose the server with the best location for you, then prefer one that shows healthy status and low ping when available.</div></div>
-        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> SSH or VLESS?</div><div>Use SSH when your client app expects SSH login details. Use VLESS when your client supports VLESS or Xray profiles and link import.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Which protocol should I use?</div><div>Use SSH for manual SSH-style apps, VLESS for Xray clients, Hysteria for Hysteria-compatible apps, WireGuard for QR or config import, and OpenVPN for `.ovpn` clients.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why do I see a wait message?</div><div>The panel has a cooldown between account creations, so you may need to wait a few minutes before creating another account.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why can't I create more accounts today?</div><div>The selected server has a daily creation limit per service. Try again the next day or switch to another available server.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> What does expired mean?</div><div>Your account has passed its validity period. Create a new account or ask an admin to extend the expiration.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why is login rejected?</div><div>Most failed logins come from wrong username, wrong password, wrong port, or importing the wrong profile for the selected protocol.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why does my app ask for Host or SNI?</div><div>Some TLS, SSL, and WebSocket clients require these fields. If you imported the generated profile, they should already be filled correctly.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> What if WireGuard has no QR code?</div><div>That is okay. Import the generated config file manually and use it as the main profile.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> What if OpenVPN asks for login after import?</div><div>Use the username and password shown on the panel result page for that OpenVPN account.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> What if Hysteria shows both link types?</div><div>Start with the main Hysteria link. Use the legacy URI only when your app clearly needs the older format.</div></div>
         <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Where do I check if the server is alive?</div><div>Open the Status page after selecting a server. If the backend is down, wait for it to recover before retrying.</div></div>
       </div>
     </div>
