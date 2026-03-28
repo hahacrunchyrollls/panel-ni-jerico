@@ -32,6 +32,7 @@ AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 SESSION_SECRET_FILE = STATE_DIR / "session_secret.txt"
 README_FILE = Path.cwd() / "README.md"
+BACKEND_INSTALLER_FILE = Path.cwd() / "backend.sh"
 FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 
@@ -1506,6 +1507,14 @@ def find_backend_config(backend_id):
         if backend.get("id") == backend_key:
             return backend
     return None
+
+
+def load_backend_installer_script():
+    try:
+        raw = BACKEND_INSTALLER_FILE.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    return raw if raw.strip() else ""
 
 
 def admin_backend_label(backend):
@@ -3467,6 +3476,47 @@ updateAdminStats();setInterval(updateAdminStats,5000);
     )
 
 
+def render_admin_backend_update_panel():
+    backends = load_backends()
+    if not backends:
+        return """
+<div class="link-box" style="margin-top:1.2rem;">
+  <div style="font-weight:700;margin-bottom:.45rem;">Backend Updates</div>
+  <div style="color:var(--text-secondary);">Connect at least one backend before using remote backend updates.</div>
+</div>"""
+    cards = []
+    for backend in backends:
+        backend_id = html.escape(str(backend.get("id", "") or "").strip(), quote=True)
+        backend_label = html.escape(admin_backend_label(backend))
+        backend_host_text = html.escape(backend_host(backend))
+        confirm_text = json.dumps(
+            f"Update backend on {admin_backend_label(backend)}? This will restart the remote fuji-backend service."
+        )
+        cards.append(
+            f"""
+<div class="link-box" style="display:flex;flex-direction:column;gap:.8rem;">
+  <div>
+    <div style="font-weight:800;font-size:1.02rem;">{backend_label}</div>
+    <div style="color:var(--text-muted);font-size:.92rem;">{backend_host_text}</div>
+  </div>
+  <form method="POST" action="/admin" style="margin:0;" onsubmit='return confirm({confirm_text});'>
+    <input type="hidden" name="action" value="update_backend">
+    <input type="hidden" name="backend_id" value="{backend_id}">
+    <button type="submit" style="width:100%;max-width:none;"><i class="fa-solid fa-rotate"></i> Update Backend</button>
+  </form>
+</div>"""
+        )
+    return (
+        """
+<div style="margin-top:1.2rem;">
+  <div style="font-weight:700;margin-bottom:.4rem;">Backend Updates</div>
+  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Push the current local <code>backend.sh</code> installer to a selected server and trigger a remote backend update. The backend service on that server will restart during the update.</div>
+  <div class="admin-account-grid" style="margin-top:1rem;">"""
+        + "".join(cards)
+        + "</div></div>"
+    )
+
+
 def render_admin(success=None, error=None):
     if not session.get("admin_authenticated"):
         hint = "" if os.environ.get("ADMIN_PASSWORD") else '<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-info" style="color:var(--error);"></i><div>Set <code>ADMIN_PASSWORD</code> in Vercel to enable admin login.</div></div>'
@@ -3487,6 +3537,7 @@ def render_admin(success=None, error=None):
     bypass_editor_html = render_vless_bypass_admin()
     account_manager_html = render_admin_account_manager()
     admin_stats_html = render_admin_stats_panel()
+    backend_update_html = render_admin_backend_update_panel()
     events = recent_admin_events(8)
     event_cards = "".join(
         f'<div class="link-box"><div style="font-weight:700">{html.escape(e["action"].replace("_"," ").title())}</div><div style="color:var(--text-muted);font-size:.9rem">{html.escape(e["time"])} | {html.escape(e["status"])}</div><div style="margin-top:.5rem">{html.escape(json.dumps(e.get("details", {})))}</div></div>'
@@ -3506,6 +3557,7 @@ def render_admin(success=None, error=None):
       <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
     {admin_stats_html}
+    {backend_update_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
@@ -3881,6 +3933,32 @@ def admin_post():
             return redirect("/admin?success=" + urllib.parse.quote(f"Removed {username} from {service.upper()}."), code=303)
         except Exception as exc:
             log_admin_event("delete_account", "failed", {"backend_id": backend_id, "service": service, "username": username})
+            return redirect("/admin?error=" + urllib.parse.quote(backend_error_message(exc)), code=303)
+    if action == "update_backend":
+        backend_id = request.form.get("backend_id", "")
+        backend = find_backend_config(backend_id)
+        if not backend:
+            log_admin_event("update_backend", "failed", {"backend_id": backend_id})
+            return redirect("/admin?error=" + urllib.parse.quote("Selected backend was not found."), code=303)
+        script = load_backend_installer_script()
+        if not script:
+            log_admin_event("update_backend", "failed", {"backend_id": backend_id, "reason": "missing installer"})
+            return redirect("/admin?error=" + urllib.parse.quote("Local backend.sh installer could not be loaded."), code=303)
+        try:
+            backend_request_for(
+                backend,
+                "/maintenance/update",
+                payload={"script": script},
+                method="POST",
+            )
+            log_admin_event("update_backend", "success", {"backend_id": backend_id})
+            return redirect(
+                "/admin?success="
+                + urllib.parse.quote(f"Backend update triggered for {admin_backend_label(backend)}. The remote backend service will restart."),
+                code=303,
+            )
+        except Exception as exc:
+            log_admin_event("update_backend", "failed", {"backend_id": backend_id})
             return redirect("/admin?error=" + urllib.parse.quote(backend_error_message(exc)), code=303)
     if action == "save_bypass_options":
         ok, saved_options = set_vless_bypass_options_from_json(request.form.get("bypass_options_json", "[]"))
