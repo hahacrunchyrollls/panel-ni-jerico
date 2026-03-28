@@ -98,6 +98,10 @@ backend_status_summary_cache = {}
 backend_location_lock = threading.Lock()
 backend_location_cache = {}
 backend_location_refreshing = set()
+backend_cache_lock = threading.Lock()
+backend_cache = {"signature": None, "backends": [], "by_id": {}}
+announcement_cache_lock = threading.Lock()
+announcement_cache = {"stat": None, "exists": False, "raw": "", "html": ""}
 admin_account_groups_lock = threading.Lock()
 admin_account_groups_cache = {"loaded_at": 0.0, "groups": None}
 panel_visit_sync_lock = threading.Lock()
@@ -316,7 +320,15 @@ def load_config():
     return local_config
 
 
-def load_backends():
+def _backend_env_signature():
+    relevant = []
+    for key in sorted(os.environ):
+        if key.startswith("SERVER_") or key == "API_TOKEN" or re.fullmatch(r"API_TOKEN_\d+", key):
+            relevant.append((key, os.environ.get(key, "")))
+    return tuple(relevant)
+
+
+def _build_backends():
     backends = []
     raw = os.environ.get("SERVER_BACKENDS_JSON", "").strip()
     if raw:
@@ -364,6 +376,34 @@ def load_backends():
             }
         )
     return backends
+
+
+def load_backends():
+    signature = _backend_env_signature()
+    with backend_cache_lock:
+        if backend_cache.get("signature") == signature:
+            return _clone(backend_cache.get("backends", []))
+    backends = _build_backends()
+    by_id = {str(backend.get("id", "")).strip(): dict(backend) for backend in backends if str(backend.get("id", "")).strip()}
+    with backend_cache_lock:
+        backend_cache["signature"] = signature
+        backend_cache["backends"] = _clone(backends)
+        backend_cache["by_id"] = by_id
+    return _clone(backends)
+
+
+def backend_by_id(backend_id):
+    backend_key = str(backend_id or "").strip()
+    if not backend_key:
+        return None
+    signature = _backend_env_signature()
+    with backend_cache_lock:
+        if backend_cache.get("signature") == signature and backend_key in backend_cache.get("by_id", {}):
+            return dict(backend_cache["by_id"][backend_key])
+    load_backends()
+    with backend_cache_lock:
+        cached = backend_cache.get("by_id", {}).get(backend_key)
+        return dict(cached) if isinstance(cached, dict) else None
 
 
 def backend_configured():
@@ -589,6 +629,12 @@ def update_local_panel_state(state):
     return cache_panel_state(normalized)
 
 
+def get_cached_panel_state():
+    with panel_state_lock:
+        cached = panel_state_cache.get("state")
+        return dict(cached) if isinstance(cached, dict) else None
+
+
 def load_remote_panel_state(force=False):
     backend = primary_panel_backend()
     if not backend:
@@ -806,11 +852,7 @@ def has_explicit_backend_selection():
 
 
 def explicitly_selected_backend():
-    current_id = explicitly_selected_backend_id()
-    for backend in load_backends():
-        if backend["id"] == current_id:
-            return backend
-    return None
+    return backend_by_id(explicitly_selected_backend_id())
 
 
 def require_backend_selection():
@@ -820,16 +862,11 @@ def require_backend_selection():
 
 
 def selected_backend():
-    current_id = selected_backend_id()
-    for backend in load_backends():
-        if backend["id"] == current_id:
-            return backend
-    return None
+    return backend_by_id(selected_backend_id())
 
 
 def set_selected_backend(backend_id):
-    valid_ids = {backend["id"] for backend in load_backends()}
-    if backend_id in valid_ids and has_request_context():
+    if backend_by_id(backend_id) and has_request_context():
         session["selected_backend_id"] = backend_id
         return True
     return False
@@ -1352,9 +1389,9 @@ def set_vless_bypass_options_from_json(raw_json):
     return save_vless_bypass_options(parsed)
 
 
-def load_counts():
+def load_counts(force_remote=False):
     data = normalize_counts_state(load_json(COUNTS_FILE, default_counts_state()))
-    remote_state = load_remote_panel_state()
+    remote_state = load_remote_panel_state(force=force_remote) if force_remote else get_cached_panel_state()
     if remote_state:
         merged = merge_counts_state(data, counts_state_from_panel_state(remote_state))
         if merged != data:
@@ -1375,8 +1412,8 @@ def _sum_service_counts(counts):
     return total
 
 
-def get_daily_created_count(service=None, backend_id=None):
-    data = load_counts()
+def get_daily_created_count(service=None, backend_id=None, force_remote=False):
+    data = load_counts(force_remote=force_remote)
     backend_id = backend_id or selected_backend_id() or "default"
     counts = data.get("counts", {}).get(backend_id, {})
     if service:
@@ -1387,8 +1424,8 @@ def get_daily_created_count(service=None, backend_id=None):
     return _sum_service_counts(counts)
 
 
-def get_total_daily_created_count(service=None):
-    data = load_counts()
+def get_total_daily_created_count(service=None, force_remote=False):
+    data = load_counts(force_remote=force_remote)
     total = 0
     for counts in data.get("counts", {}).values():
         if service:
@@ -1401,8 +1438,8 @@ def get_total_daily_created_count(service=None):
     return total
 
 
-def get_scoped_daily_created_count(service=None, backend_id=None):
-    return get_daily_created_count(service=service, backend_id=backend_id or selected_backend_id() or "default")
+def get_scoped_daily_created_count(service=None, backend_id=None, force_remote=False):
+    return get_daily_created_count(service=service, backend_id=backend_id or selected_backend_id() or "default", force_remote=force_remote)
 
 
 def increment_daily_created_count(service, backend_id=None):
@@ -1422,12 +1459,12 @@ def increment_daily_created_count(service, backend_id=None):
         return data["counts"][backend_id][service]
 
 
-def load_visits():
+def load_visits(force_remote=False):
     data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
     data.setdefault("total_visits", 0)
     data.setdefault("total_accounts", 0)
     data.setdefault("daily", {})
-    remote_state = load_remote_panel_state()
+    remote_state = load_remote_panel_state(force=force_remote) if force_remote else get_cached_panel_state()
     if remote_state:
         data["total_visits"] = max(int(data.get("total_visits", 0) or 0), int(remote_state.get("total_visits", 0) or 0))
         data["total_accounts"] = max(int(data.get("total_accounts", 0) or 0), int(remote_state.get("total_accounts", 0) or 0))
@@ -1483,13 +1520,13 @@ def increment_total_accounts():
             data["total_accounts"] = max(int(data.get("total_accounts", 0) or 0), int(remote_state.get("total_accounts", 0) or 0))
             save_json(VISITS_FILE, data)
             return data["total_accounts"]
-    return load_visits()["total_accounts"]
+    return load_visits(force_remote=False)["total_accounts"]
 
 
-def get_display_total_accounts(visits=None, counters=None):
-    visits = visits if isinstance(visits, dict) else load_visits()
-    remote_state = load_remote_panel_state()
-    candidates = [get_total_daily_created_count()]
+def get_display_total_accounts(visits=None, counters=None, force_remote=False):
+    visits = visits if isinstance(visits, dict) else load_visits(force_remote=force_remote)
+    remote_state = load_remote_panel_state(force=True) if force_remote else get_cached_panel_state()
+    candidates = [get_total_daily_created_count(force_remote=force_remote)]
     try:
         candidates.append(max(int(visits.get("total_accounts", 0) or 0), 0))
     except Exception:
@@ -1588,33 +1625,54 @@ def admin_credentials_valid(username, password):
     return bool(expected_password) and username == expected_user and password == expected_password
 
 
-def announcement_exists():
+def load_announcement_document():
+    stat_key = None
+    exists = False
+    raw = ""
+    html_output = "<div style='color:var(--error);font-weight:600;text-align:center;'>NO ANNOUNCEMENT!</div>"
     try:
-        return README_FILE.exists() and README_FILE.read_text(encoding="utf-8").strip() != ""
+        stat = README_FILE.stat()
+        stat_key = (int(stat.st_mtime_ns), int(stat.st_size))
+        exists = stat.st_size > 0
     except Exception:
-        return False
+        stat_key = ("missing", 0)
+        exists = False
+    with announcement_cache_lock:
+        if announcement_cache.get("stat") == stat_key:
+            return dict(announcement_cache)
+    if exists:
+        try:
+            raw = README_FILE.read_text(encoding="utf-8").strip()
+            exists = bool(raw)
+        except Exception:
+            raw = ""
+            exists = False
+    if exists:
+        text = html.escape(raw)
+        text = re.sub(r"(^|\n)### (.*)", r"\1<h3>\2</h3>", text)
+        text = re.sub(r"(^|\n)## (.*)", r"\1<h2>\2</h2>", text)
+        text = re.sub(r"(^|\n)# (.*)", r"\1<h1>\2</h1>", text)
+        text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+        text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
+        text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2" target="_blank">\1</a>', text)
+        text = re.sub(
+            r"(https?://[^\s<]+)",
+            r'<a href="\1" target="_blank" style="color:#06b6d4;text-decoration:underline;">\1</a>',
+            text,
+        )
+        html_output = text.replace("\n", "<br>")
+    document = {"stat": stat_key, "exists": exists, "raw": raw, "html": html_output}
+    with announcement_cache_lock:
+        announcement_cache.update(document)
+    return dict(document)
+
+
+def announcement_exists():
+    return bool(load_announcement_document().get("exists"))
 
 
 def announcement_html():
-    try:
-        raw = README_FILE.read_text(encoding="utf-8").strip()
-    except Exception:
-        raw = ""
-    if not raw:
-        return "<div style='color:var(--error);font-weight:600;text-align:center;'>NO ANNOUNCEMENT!</div>"
-    text = html.escape(raw)
-    text = re.sub(r"(^|\n)### (.*)", r"\1<h3>\2</h3>", text)
-    text = re.sub(r"(^|\n)## (.*)", r"\1<h2>\2</h2>", text)
-    text = re.sub(r"(^|\n)# (.*)", r"\1<h1>\2</h1>", text)
-    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
-    text = re.sub(r"\[(.+?)\]\((.+?)\)", r'<a href="\2" target="_blank">\1</a>', text)
-    text = re.sub(
-        r"(https?://[^\s<]+)",
-        r'<a href="\1" target="_blank" style="color:#06b6d4;text-decoration:underline;">\1</a>',
-        text,
-    )
-    return text.replace("\n", "<br>")
+    return str(load_announcement_document().get("html") or "<div style='color:var(--error);font-weight:600;text-align:center;'>NO ANNOUNCEMENT!</div>")
 
 
 def format_expiry(timestamp):
@@ -1636,13 +1694,7 @@ def backend_error_message(exc):
 
 
 def find_backend_config(backend_id):
-    backend_key = str(backend_id or "").strip()
-    if not backend_key:
-        return None
-    for backend in load_backends():
-        if backend.get("id") == backend_key:
-            return backend
-    return None
+    return backend_by_id(backend_id)
 
 
 def admin_backend_label(backend):
@@ -3949,11 +4001,11 @@ def render_vless_bypass_admin():
 
 
 def render_admin_stats_panel():
-    visits = load_visits()
+    visits = load_visits(force_remote=False)
     counters = get_cached_backend_summary_counters() if backend_configured() else _empty_backend_summary()
     if not counters:
         counters = _empty_backend_summary()
-    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
+    total_accounts = get_display_total_accounts(visits=visits, counters=counters, force_remote=False)
     return render_template_string(
         """
 <div style="margin-top:1.2rem;">
@@ -4272,7 +4324,7 @@ def status_full():
 
 @app.get("/main/stats")
 def main_stats():
-    visits = load_visits()
+    visits = load_visits(force_remote=True)
     requested_scope = str(request.args.get("scope", "") or "").strip().lower()
     if requested_scope == "all":
         online_stats = load_backend_summary_counters(force=False)
@@ -4282,7 +4334,7 @@ def main_stats():
     else:
         online_stats = load_main_online_stats(force=False)
     counters = load_backend_summary_counters(force=False)
-    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
+    total_accounts = get_display_total_accounts(visits=visits, counters=counters, force_remote=True)
     ssh_online_users = max(int(online_stats.get("ssh_online_users", 0) or 0), 0)
     openvpn_online_users = max(int(online_stats.get("openvpn_online_users", 0) or 0), 0)
     online_users = ssh_online_users + openvpn_online_users
