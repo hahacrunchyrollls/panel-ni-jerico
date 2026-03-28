@@ -40,6 +40,7 @@ CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "wireguard": 2, "
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
+MAX_BACKEND_INSTALLER_BYTES = 900000
 SERVER_HEALTH_CACHE_TTL = 15
 SERVER_HEALTH_TIMEOUT = 2
 REMOTE_PANEL_CONFIG_CACHE_TTL = 15
@@ -291,6 +292,7 @@ def default_panel_config():
         "daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT,
         "create_expiry": dict(CREATE_EXPIRY_DEFAULTS),
         "vless_bypass_options": [],
+        "backend_installer_script": "",
         "updated_at": 0,
     }
 
@@ -373,6 +375,7 @@ def normalize_panel_config(raw_config):
     if raw_bypass_options is None and "bypass_options" in config:
         raw_bypass_options = config.get("bypass_options")
     normalized["vless_bypass_options"] = normalize_vless_bypass_options(raw_bypass_options)
+    normalized["backend_installer_script"] = normalize_backend_installer_script(config.get("backend_installer_script", ""))
     try:
         normalized["daily_limit"] = max(1, min(int(config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)), 999))
     except Exception:
@@ -1515,6 +1518,70 @@ def load_backend_installer_script():
     except Exception:
         return ""
     return raw if raw.strip() else ""
+
+
+def normalize_backend_installer_script(raw_script):
+    if raw_script is None:
+        return ""
+    try:
+        text = str(raw_script).replace("\r\n", "\n")
+    except Exception:
+        return ""
+    if not text.strip():
+        return ""
+    try:
+        if len(text.encode("utf-8")) > MAX_BACKEND_INSTALLER_BYTES:
+            return ""
+    except Exception:
+        return ""
+    return text
+
+
+def load_saved_backend_installer_script():
+    return normalize_backend_installer_script(load_config().get("backend_installer_script", ""))
+
+
+def load_effective_backend_installer_script():
+    return load_saved_backend_installer_script() or load_backend_installer_script()
+
+
+def save_backend_installer_script(raw_script):
+    script = normalize_backend_installer_script(raw_script)
+    if not script:
+        return False, "The backend.sh script cannot be empty or exceed 900 KB.", ""
+    with state_lock:
+        config = load_config()
+        config["backend_installer_script"] = script
+        if save_panel_config(config):
+            return True, "", script
+    return False, "Failed to save backend.sh script.", script
+
+
+def trigger_backend_update(backend, script):
+    backend_request_for(
+        backend,
+        "/maintenance/update",
+        payload={"script": script},
+        method="POST",
+    )
+
+
+def trigger_all_backend_updates(script):
+    backends = load_backends()
+    if not backends:
+        return [], ["No backends are connected."]
+    successes = []
+    failures = []
+    for backend in backends:
+        backend_id = str(backend.get("id", "") or "").strip()
+        backend_name = admin_backend_label(backend)
+        try:
+            trigger_backend_update(backend, script)
+            successes.append(backend_name)
+        except Exception as exc:
+            failures.append(f"{backend_name}: {backend_error_message(exc)}")
+            log_admin_event("update_all_backends", "partial_failure", {"backend_id": backend_id})
+    return successes, failures
 
 
 def admin_backend_label(backend):
@@ -3478,19 +3545,26 @@ updateAdminStats();setInterval(updateAdminStats,5000);
 
 def render_admin_backend_update_panel():
     backends = load_backends()
+    saved_script = load_saved_backend_installer_script()
+    effective_script = saved_script or load_backend_installer_script()
+    script_source_note = "Using saved admin backend.sh script." if saved_script else "Using local backend.sh bundled with this deployment."
+    script_text = html.escape(effective_script)
     if not backends:
         return """
 <div class="link-box" style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.45rem;">Backend Updates</div>
   <div style="color:var(--text-secondary);">Connect at least one backend before using remote backend updates.</div>
 </div>"""
+    save_and_update_confirm_text = json.dumps(
+        "Save this backend.sh script and update all backends? This will push the script to every connected server and restart each remote fuji-backend service."
+    )
     cards = []
     for backend in backends:
         backend_id = html.escape(str(backend.get("id", "") or "").strip(), quote=True)
         backend_label = html.escape(admin_backend_label(backend))
         backend_host_text = html.escape(backend_host(backend))
         confirm_text = json.dumps(
-            f"Update backend on {admin_backend_label(backend)}? This will restart the remote fuji-backend service."
+            f"Run the saved backend.sh script on {admin_backend_label(backend)}? This will restart the remote fuji-backend service."
         )
         cards.append(
             f"""
@@ -3502,7 +3576,7 @@ def render_admin_backend_update_panel():
   <form method="POST" action="/admin" style="margin:0;" onsubmit='return confirm({confirm_text});'>
     <input type="hidden" name="action" value="update_backend">
     <input type="hidden" name="backend_id" value="{backend_id}">
-    <button type="submit" style="width:100%;max-width:none;"><i class="fa-solid fa-rotate"></i> Update Backend</button>
+    <button type="submit" style="width:100%;max-width:none;"><i class="fa-solid fa-rotate"></i> Run Saved backend.sh</button>
   </form>
 </div>"""
         )
@@ -3510,7 +3584,27 @@ def render_admin_backend_update_panel():
         """
 <div style="margin-top:1.2rem;">
   <div style="font-weight:700;margin-bottom:.4rem;">Backend Updates</div>
-  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Push the current local <code>backend.sh</code> installer to a selected server and trigger a remote backend update. The backend service on that server will restart during the update.</div>
+  <div style="color:var(--text-secondary);margin-bottom:.4rem;">Paste or edit the <code>backend.sh</code> script here, save it in the panel, then push it to one server or all connected servers without logging in over SSH.</div>
+  <div class="link-box" style="margin-top:1rem;">
+    <form method="POST" action="/admin" style="margin:0;align-items:stretch;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:.7rem;">
+        <div style="font-weight:800;">backend.sh</div>
+        <div style="color:var(--text-muted);font-size:.88rem;">"""
+        + html.escape(script_source_note)
+        + """</div>
+      </div>
+      <textarea name="backend_installer_script" spellcheck="false" style="width:100%;min-height:320px;padding:12px;border-radius:14px;border:3px solid var(--card-border);background:rgba(255,255,255,.95);color:var(--text-primary);font-family:ui-monospace,'Cascadia Code','SF Mono',monospace;resize:vertical;box-sizing:border-box;">"""
+        + script_text
+        + """</textarea>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:1rem;">
+        <button type="submit" name="action" value="save_backend_installer_script" style="width:100%;max-width:360px;"><i class="fa-solid fa-floppy-disk"></i> Save backend.sh</button>
+        <button type="submit" name="action" value="save_and_update_all_backends" onclick='return confirm("""
+        + save_and_update_confirm_text
+        + """ );' style="width:100%;max-width:360px;"><i class="fa-solid fa-servers"></i> Save and Update All Backends</button>
+      </div>
+      <div style="color:var(--text-muted);font-size:.9rem;margin-top:.85rem;">Existing servers still need the newer backend API once. After that one-time bootstrap, future updates can be triggered here from the admin page.</div>
+    </form>
+  </div>
   <div class="admin-account-grid" style="margin-top:1rem;">"""
         + "".join(cards)
         + "</div></div>"
@@ -3934,16 +4028,23 @@ def admin_post():
         except Exception as exc:
             log_admin_event("delete_account", "failed", {"backend_id": backend_id, "service": service, "username": username})
             return redirect("/admin?error=" + urllib.parse.quote(backend_error_message(exc)), code=303)
+    if action == "save_backend_installer_script":
+        ok, save_error, script = save_backend_installer_script(request.form.get("backend_installer_script", ""))
+        if ok:
+            log_admin_event("save_backend_installer_script", "success", {"bytes": len(script.encode("utf-8"))})
+            return redirect("/admin?success=" + urllib.parse.quote("backend.sh script saved in the admin panel."), code=303)
+        log_admin_event("save_backend_installer_script", "failed", {})
+        return redirect("/admin?error=" + urllib.parse.quote(save_error or "Failed to save backend.sh script."), code=303)
     if action == "update_backend":
         backend_id = request.form.get("backend_id", "")
         backend = find_backend_config(backend_id)
         if not backend:
             log_admin_event("update_backend", "failed", {"backend_id": backend_id})
             return redirect("/admin?error=" + urllib.parse.quote("Selected backend was not found."), code=303)
-        script = load_backend_installer_script()
+        script = load_effective_backend_installer_script()
         if not script:
             log_admin_event("update_backend", "failed", {"backend_id": backend_id, "reason": "missing installer"})
-            return redirect("/admin?error=" + urllib.parse.quote("Local backend.sh installer could not be loaded."), code=303)
+            return redirect("/admin?error=" + urllib.parse.quote("backend.sh script could not be loaded."), code=303)
         try:
             backend_request_for(
                 backend,
@@ -3960,6 +4061,60 @@ def admin_post():
         except Exception as exc:
             log_admin_event("update_backend", "failed", {"backend_id": backend_id})
             return redirect("/admin?error=" + urllib.parse.quote(backend_error_message(exc)), code=303)
+    if action == "save_and_update_all_backends":
+        ok, save_error, script = save_backend_installer_script(request.form.get("backend_installer_script", ""))
+        if not ok:
+            log_admin_event("save_and_update_all_backends", "failed", {"reason": "save_failed"})
+            return redirect("/admin?error=" + urllib.parse.quote(save_error or "Failed to save backend.sh script."), code=303)
+        successes, failures = trigger_all_backend_updates(script)
+        if successes and not failures:
+            log_admin_event("save_and_update_all_backends", "success", {"count": len(successes)})
+            return redirect(
+                "/admin?success="
+                + urllib.parse.quote(f"Saved backend.sh and triggered update for all {len(successes)} connected servers."),
+                code=303,
+            )
+        if successes and failures:
+            log_admin_event("save_and_update_all_backends", "partial_failure", {"success_count": len(successes), "failed_count": len(failures)})
+            return redirect(
+                "/admin?error="
+                + urllib.parse.quote(
+                    f"Saved backend.sh and triggered update for {len(successes)} server(s), but {len(failures)} failed: {' | '.join(failures[:3])}"
+                ),
+                code=303,
+            )
+        log_admin_event("save_and_update_all_backends", "failed", {"failed_count": len(failures)})
+        return redirect(
+            "/admin?error=" + urllib.parse.quote(f"Saved backend.sh but failed to trigger updates: {' | '.join(failures[:3])}"),
+            code=303,
+        )
+    if action == "update_all_backends":
+        script = load_effective_backend_installer_script()
+        if not script:
+            log_admin_event("update_all_backends", "failed", {"reason": "missing installer"})
+            return redirect("/admin?error=" + urllib.parse.quote("backend.sh script could not be loaded."), code=303)
+        successes, failures = trigger_all_backend_updates(script)
+        if successes and not failures:
+            log_admin_event("update_all_backends", "success", {"count": len(successes)})
+            return redirect(
+                "/admin?success="
+                + urllib.parse.quote(f"Backend update triggered for all {len(successes)} connected servers."),
+                code=303,
+            )
+        if successes and failures:
+            log_admin_event("update_all_backends", "partial_failure", {"success_count": len(successes), "failed_count": len(failures)})
+            return redirect(
+                "/admin?error="
+                + urllib.parse.quote(
+                    f"Triggered update for {len(successes)} server(s), but {len(failures)} failed: {' | '.join(failures[:3])}"
+                ),
+                code=303,
+            )
+        log_admin_event("update_all_backends", "failed", {"failed_count": len(failures)})
+        return redirect(
+            "/admin?error=" + urllib.parse.quote(f"Failed to trigger backend updates: {' | '.join(failures[:3])}"),
+            code=303,
+        )
     if action == "save_bypass_options":
         ok, saved_options = set_vless_bypass_options_from_json(request.form.get("bypass_options_json", "[]"))
         if ok:
