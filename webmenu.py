@@ -97,6 +97,7 @@ backend_status_summary_lock = threading.Lock()
 backend_status_summary_cache = {}
 backend_location_lock = threading.Lock()
 backend_location_cache = {}
+backend_location_refreshing = set()
 admin_account_groups_lock = threading.Lock()
 admin_account_groups_cache = {"loaded_at": 0.0, "groups": None}
 panel_visit_sync_lock = threading.Lock()
@@ -1135,6 +1136,69 @@ def backend_location(backend=None):
         return {"country": "Unknown", "countryCode": "", "city": ""}
 
 
+def backend_location_snapshot(backend=None):
+    backend = backend or selected_backend()
+    fallback = {
+        "country": str((backend or {}).get("country", "") or "").strip() or "Unknown",
+        "countryCode": str((backend or {}).get("countryCode", "") or "").strip(),
+        "city": str((backend or {}).get("city", "") or "").strip(),
+    }
+    lookup = (backend or {}).get("lookup") or backend_host(backend)
+    if not lookup:
+        return fallback
+    cache_key = str((backend or {}).get("id") or lookup or "").strip()
+    now = time.time()
+    with backend_location_lock:
+        cached = backend_location_cache.get(cache_key)
+        if cached and now - float(cached.get("loaded_at", 0.0) or 0.0) < BACKEND_LOCATION_CACHE_TTL:
+            return dict(cached.get("location", fallback))
+    return fallback
+
+
+def backend_location_snapshots(backends=None):
+    snapshots = {}
+    for backend in list(backends or load_backends()):
+        backend_id = str(backend.get("id", "")).strip()
+        if backend_id:
+            snapshots[backend_id] = backend_location_snapshot(backend)
+    return snapshots
+
+
+def warm_backend_location_cache_async(backends=None):
+    candidates = []
+    now = time.time()
+    for backend in list(backends or load_backends()):
+        if backend and backend.get("country") and backend.get("countryCode"):
+            continue
+        cache_key = str((backend or {}).get("id") or (backend or {}).get("lookup") or backend_host(backend) or "").strip()
+        if not cache_key:
+            continue
+        with backend_location_lock:
+            cached = backend_location_cache.get(cache_key)
+            if cached and now - float(cached.get("loaded_at", 0.0) or 0.0) < BACKEND_LOCATION_CACHE_TTL:
+                continue
+            if cache_key in backend_location_refreshing:
+                continue
+            backend_location_refreshing.add(cache_key)
+        candidates.append((cache_key, backend))
+    if not candidates:
+        return
+
+    def worker(entries):
+        try:
+            for _cache_key, backend in entries:
+                try:
+                    backend_location(backend)
+                except Exception:
+                    continue
+        finally:
+            with backend_location_lock:
+                for cache_key, _backend in entries:
+                    backend_location_refreshing.discard(cache_key)
+
+    threading.Thread(target=worker, args=(candidates,), daemon=True).start()
+
+
 def backend_request_for(backend, path, payload=None, method="POST"):
     if not backend:
         raise RuntimeError(
@@ -1370,7 +1434,23 @@ def load_visits():
     return data
 
 
-def bump_visit_count():
+def _merge_remote_visit_state(remote_state):
+    if not isinstance(remote_state, dict):
+        return None
+    with state_lock:
+        data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
+        data.setdefault("daily", {})
+        data["total_visits"] = max(int(data.get("total_visits", 0) or 0), int(remote_state.get("total_visits", 0) or 0))
+        save_json(VISITS_FILE, data)
+        return data
+
+
+def _sync_visit_count_remote():
+    remote_state = mutate_remote_panel_state("/panel-state/visit", {})
+    _merge_remote_visit_state(remote_state)
+
+
+def bump_visit_count(async_remote=False):
     with state_lock:
         data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
         today = _ph_date()
@@ -1380,14 +1460,14 @@ def bump_visit_count():
         keys = sorted(data["daily"].keys())[-14:]
         data["daily"] = {key: data["daily"][key] for key in keys}
         save_json(VISITS_FILE, data)
-    remote_state = mutate_remote_panel_state("/panel-state/visit", {}) if should_sync_panel_visit() else None
-    if remote_state:
-        with state_lock:
-            data = load_json(VISITS_FILE, {"total_visits": 0, "total_accounts": 0, "daily": {}})
-            data.setdefault("daily", {})
-            data["total_visits"] = max(int(data.get("total_visits", 0) or 0), int(remote_state.get("total_visits", 0) or 0))
-            save_json(VISITS_FILE, data)
-    return load_visits()
+        local_snapshot = dict(data)
+    if not should_sync_panel_visit():
+        return local_snapshot
+    if async_remote:
+        threading.Thread(target=_sync_visit_count_remote, daemon=True).start()
+        return local_snapshot
+    remote_state = mutate_remote_panel_state("/panel-state/visit", {})
+    return _merge_remote_visit_state(remote_state) or local_snapshot
 
 
 def increment_total_accounts():
@@ -2894,9 +2974,13 @@ def render_selected_server_note(change_href="/main", include_change=True, margin
     current_backend = explicitly_selected_backend()
     if not current_backend:
         return ""
-    backend_geo = backend_location(current_backend)
+    backends = load_backends()
+    backend_locations = backend_location_snapshots(backends)
+    warm_backend_location_cache_async(backends)
+    backend_geo = backend_locations.get(str(current_backend.get("id", "")).strip(), backend_location_snapshot(current_backend))
     location_bits = [bit for bit in [current_backend.get("city") or backend_geo.get("city", ""), current_backend.get("country") or backend_geo.get("country", "")] if bit]
-    display_label = backend_display_label(current_backend)
+    labels = build_backend_display_labels(backends=backends, backend_locations=backend_locations)
+    display_label = str(labels.get(str(current_backend.get("id", "")).strip()) or _backend_base_display_label(current_backend, backend_geo) or "Unknown")
     change_link = ""
     if include_change:
         change_link = f'<a href="{html.escape(change_href)}" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
@@ -2919,20 +3003,13 @@ def render_server_selector(redirect_to="/services", show_header=True):
     backends = load_backends()
     if not backends:
         return ""
-    backend_locations = {}
-    max_workers = max(1, min(6, len(backends)))
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [(backend["id"], executor.submit(backend_location, backend)) for backend in backends]
-        for backend_id, future in futures:
-            try:
-                backend_locations[backend_id] = future.result()
-            except Exception:
-                backend_locations[backend_id] = {"country": "Unknown", "countryCode": "", "city": ""}
+    backend_locations = backend_location_snapshots(backends)
+    warm_backend_location_cache_async(backends)
     display_labels = build_backend_display_labels(backends=backends, backend_locations=backend_locations)
     server_cards = []
     for backend in backends:
         backend_geo = backend_locations.get(backend["id"], {"country": "Unknown", "countryCode": "", "city": ""})
-        display_label = display_labels.get(backend["id"], backend_display_label(backend))
+        display_label = display_labels.get(backend["id"]) or _backend_base_display_label(backend, backend_geo) or backend_host(backend)
         country = backend.get("country") or backend_geo.get("country") or backend.get("label") or "Unknown"
         city = backend.get("city") or backend_geo.get("city") or ""
         country_code = (backend.get("countryCode") or backend_geo.get("countryCode") or "").upper()
@@ -2944,7 +3021,7 @@ def render_server_selector(redirect_to="/services", show_header=True):
         active_class = ""
         badge_html = '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Select</span>'
         location_bits = [bit for bit in [city, country] if bit]
-        location_label = ", ".join(location_bits) if location_bits else display_label
+        location_label = ", ".join(location_bits) if location_bits else backend_host(backend)
         health_html = (
             f'<div class="server-card-health is-checking" data-server-health data-backend-id="{html.escape(backend["id"])}">'
             '<span class="server-card-health-dot"></span>'
@@ -2987,7 +3064,7 @@ def render_server_selector(redirect_to="/services", show_header=True):
     </div>"""
 
 def render_home():
-    bump_visit_count()
+    bump_visit_count(async_remote=True)
     enabled = backend_configured()
     selector_html = render_server_selector("/services")
     page_error = (request.args.get("error", "") if has_request_context() else "").strip()
