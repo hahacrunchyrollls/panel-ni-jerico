@@ -693,6 +693,39 @@ def load_backend_summary_counters(force=False):
         return _clone(cached) if cached else counters
 
 
+def load_admin_backend_online_breakdown(force=False):
+    totals = {"ssh_online_users": 0, "openvpn_online_users": 0, "online_users": 0}
+    backends = load_backends()
+    if not backends:
+        return {"totals": totals, "servers": []}
+    servers = []
+    max_workers = max(1, min(6, len(backends)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [(backend, executor.submit(load_backend_status_summary, backend, force)) for backend in backends]
+        for backend, future in futures:
+            entry = {
+                "backend_id": str(backend.get("id", "") or "").strip(),
+                "backend_label": admin_backend_label(backend),
+                "backend_host": backend_host(backend),
+                "ssh_online_users": 0,
+                "openvpn_online_users": 0,
+                "online_users": 0,
+                "error": "",
+            }
+            try:
+                summary = future.result()
+                entry["ssh_online_users"] = max(int(summary.get("ssh_online_users", 0) or 0), 0)
+                entry["openvpn_online_users"] = max(int(summary.get("openvpn_online_users", 0) or 0), 0)
+                entry["online_users"] = entry["ssh_online_users"] + entry["openvpn_online_users"]
+            except Exception as exc:
+                entry["error"] = backend_error_message(exc)
+            totals["ssh_online_users"] += entry["ssh_online_users"]
+            totals["openvpn_online_users"] += entry["openvpn_online_users"]
+            totals["online_users"] += entry["online_users"]
+            servers.append(entry)
+    return {"totals": totals, "servers": servers}
+
+
 def load_main_online_stats(force=False):
     selected = explicitly_selected_backend()
     if selected:
@@ -3465,6 +3498,112 @@ updateAdminStats();setInterval(updateAdminStats,5000);
     )
 
 
+def render_admin_online_breakdown_panel():
+    breakdown = load_admin_backend_online_breakdown(force=False)
+    totals = breakdown.get("totals", {}) if isinstance(breakdown, dict) else {}
+    servers = list((breakdown or {}).get("servers", [])) if isinstance(breakdown, dict) else []
+
+    def build_card(backend_id, label, host_text, ssh_online, openvpn_online, error_text=""):
+        total_online = max(int(ssh_online or 0), 0) + max(int(openvpn_online or 0), 0)
+        error_text = str(error_text or "").strip()
+        error_html = ""
+        if error_text:
+            error_html = (
+                '<div data-admin-online-error style="margin-top:.2rem;color:var(--error);font-size:.86rem;font-weight:700;">'
+                + html.escape(error_text)
+                + "</div>"
+            )
+        return f"""
+<div class="link-box" data-admin-online-card data-backend-id="{html.escape(str(backend_id), quote=True)}" style="display:flex;flex-direction:column;gap:.85rem;">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <div style="min-width:0;">
+      <div data-admin-online-label style="font-weight:800;font-size:1.02rem;">{html.escape(str(label or 'Unknown'))}</div>
+      <div data-admin-online-host style="color:var(--text-muted);font-size:.92rem;">{html.escape(str(host_text or ''))}</div>
+    </div>
+    <div class="server-badge" style="background:rgba(124,16,39,.08);">Total <span data-admin-online-total>{total_online}</span></div>
+  </div>
+  <div class="status-grid-2" style="gap:10px;">
+    <div class="status-card" style="padding:.8rem;">
+      <div class="status-label"><i class="fa-solid fa-user-shield" style="color:var(--primary-color)"></i> SSH Online</div>
+      <div class="status-value" data-admin-online-ssh>{max(int(ssh_online or 0), 0)}</div>
+    </div>
+    <div class="status-card" style="padding:.8rem;">
+      <div class="status-label"><i class="fa-solid fa-network-wired" style="color:var(--accent-color)"></i> OpenVPN Online</div>
+      <div class="status-value" data-admin-online-openvpn>{max(int(openvpn_online or 0), 0)}</div>
+    </div>
+  </div>
+  {error_html}
+</div>"""
+
+    cards = [
+        build_card(
+            "__total__",
+            "Total Online",
+            "All connected servers",
+            totals.get("ssh_online_users", 0),
+            totals.get("openvpn_online_users", 0),
+            "",
+        )
+    ]
+    for server in servers:
+        cards.append(
+            build_card(
+                server.get("backend_id", ""),
+                server.get("backend_label", "Unknown"),
+                server.get("backend_host", ""),
+                server.get("ssh_online_users", 0),
+                server.get("openvpn_online_users", 0),
+                server.get("error", ""),
+            )
+        )
+    return """
+<div style="margin-top:1.2rem;">
+  <div style="font-weight:700;margin-bottom:.45rem;">Online by Server</div>
+  <div style="color:var(--text-secondary);margin-bottom:.45rem;">Each card shows live SSH and OpenVPN users for that server. The first card is the total across all connected servers.</div>
+  <div class="admin-account-grid" id="admin-online-breakdown-grid">""" + "".join(cards) + """</div>
+</div>
+<script>
+(function(){
+  const cards = Array.from(document.querySelectorAll('[data-admin-online-card]'));
+  if(!cards.length)return;
+  const cardMap = new Map(cards.map(card=>[String(card.getAttribute('data-backend-id')||''), card]));
+  function setCard(card, payload){
+    if(!card || !payload)return;
+    const ssh = Math.max(0, Number(payload.ssh_online_users||0) || 0);
+    const openvpn = Math.max(0, Number(payload.openvpn_online_users||0) || 0);
+    const total = Math.max(0, Number(payload.online_users||0) || (ssh + openvpn));
+    const sshNode = card.querySelector('[data-admin-online-ssh]');
+    const openvpnNode = card.querySelector('[data-admin-online-openvpn]');
+    const totalNode = card.querySelector('[data-admin-online-total]');
+    const errorNode = card.querySelector('[data-admin-online-error]');
+    if(sshNode)sshNode.textContent=String(ssh);
+    if(openvpnNode)openvpnNode.textContent=String(openvpn);
+    if(totalNode)totalNode.textContent=String(total);
+    if(errorNode){
+      const errorText = String(payload.error||'').trim();
+      errorNode.textContent=errorText;
+      errorNode.style.display=errorText?'':'none';
+    }
+  }
+  function updateAdminOnlineBreakdown(){
+    fetch('/admin/online-breakdown?t='+Date.now(),{cache:'no-store'})
+      .then(r=>r.ok?r.json():Promise.reject(new Error('request failed')))
+      .then(data=>{
+        const totals = data&&data.totals ? data.totals : {};
+        setCard(cardMap.get('__total__'), totals);
+        const servers = Array.isArray(data&&data.servers) ? data.servers : [];
+        servers.forEach(server=>{
+          setCard(cardMap.get(String(server.backend_id||'')), server);
+        });
+      })
+      .catch(()=>{});
+  }
+  updateAdminOnlineBreakdown();
+  setInterval(updateAdminOnlineBreakdown,5000);
+})();
+</script>"""
+
+
 def render_admin(success=None, error=None):
     if not session.get("admin_authenticated"):
         hint = "" if os.environ.get("ADMIN_PASSWORD") else '<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-info" style="color:var(--error);"></i><div>Set <code>ADMIN_PASSWORD</code> in Vercel to enable admin login.</div></div>'
@@ -3485,6 +3624,7 @@ def render_admin(success=None, error=None):
     bypass_editor_html = render_vless_bypass_admin()
     account_manager_html = render_admin_account_manager()
     admin_stats_html = render_admin_stats_panel()
+    admin_online_breakdown_html = render_admin_online_breakdown_panel()
     events = recent_admin_events(8)
     event_cards = "".join(
         f'<div class="link-box"><div style="font-weight:700">{html.escape(e["action"].replace("_"," ").title())}</div><div style="color:var(--text-muted);font-size:.9rem">{html.escape(e["time"])} | {html.escape(e["status"])}</div><div style="margin-top:.5rem">{html.escape(json.dumps(e.get("details", {})))}</div></div>'
@@ -3504,6 +3644,7 @@ def render_admin(success=None, error=None):
       <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
     {admin_stats_html}
+    {admin_online_breakdown_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
@@ -3810,6 +3951,17 @@ def openvpn_create():
 @app.get("/admin")
 def admin_page():
     return render_admin(request.args.get("success"), request.args.get("error"))
+
+
+@app.get("/admin/online-breakdown")
+def admin_online_breakdown():
+    if not session.get("admin_authenticated"):
+        response = jsonify({"ok": False, "error": "unauthorized"})
+        response.status_code = 401
+        return response
+    response = jsonify(load_admin_backend_online_breakdown(force=False))
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.post("/admin")
