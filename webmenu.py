@@ -3465,13 +3465,11 @@ def render_vless_bypass_admin():
 
 def render_admin_stats_panel():
     visits = load_visits()
-    counters = load_backend_summary_counters(force=False) if backend_configured() else _empty_backend_summary()
+    counters = load_backend_summary_counters(force=True) if backend_configured() else _empty_backend_summary()
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     ssh_online_users = max(int((counters or {}).get("ssh_online_users", 0) or 0), 0)
     openvpn_online_users = max(int((counters or {}).get("openvpn_online_users", 0) or 0), 0)
     online_users = ssh_online_users + openvpn_online_users
-    if online_users <= 0:
-        online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
     online_scope_note = "SSH + OpenVPN across all connected servers" if backend_configured() else "No backend connected"
     online_breakdown = f"SSH {ssh_online_users} + OpenVPN {openvpn_online_users}"
     return render_template_string(
@@ -3486,7 +3484,7 @@ def render_admin_stats_panel():
 </div>
 <script>
 const adminStatsState={visits:parseInt((document.getElementById('admin-total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('admin-total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('admin-online-users')||{}).textContent||'0',10)||0};
-function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const sshOnline=Number(data&&data.ssh_online_users);const openvpnOnline=Number(data&&data.openvpn_online_users);const fallbackOnline=Number(data&&data.online_users);const combinedOnline=Math.max(0,(Number.isFinite(sshOnline)?sshOnline:0)+(Number.isFinite(openvpnOnline)?openvpnOnline:0));const online=combinedOnline>0||!Number.isFinite(fallbackOnline)?combinedOnline:Math.max(0,fallbackOnline);const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);if(Number.isFinite(online))adminStatsState.online=Math.max(0, online);document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;const onlineBreakdownNode=document.getElementById('admin-online-users-breakdown');if(onlineBreakdownNode)onlineBreakdownNode.textContent='SSH '+(Number.isFinite(sshOnline)?Math.max(0,sshOnline):0)+' + OpenVPN '+(Number.isFinite(openvpnOnline)?Math.max(0,openvpnOnline):0);}).catch(()=>{});}
+function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const sshOnline=Number(data&&data.ssh_online_users);const openvpnOnline=Number(data&&data.openvpn_online_users);const online=Math.max(0,(Number.isFinite(sshOnline)?sshOnline:0)+(Number.isFinite(openvpnOnline)?openvpnOnline:0));const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);adminStatsState.online=online;document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;const onlineBreakdownNode=document.getElementById('admin-online-users-breakdown');if(onlineBreakdownNode)onlineBreakdownNode.textContent='SSH '+(Number.isFinite(sshOnline)?Math.max(0,sshOnline):0)+' + OpenVPN '+(Number.isFinite(openvpnOnline)?Math.max(0,openvpnOnline):0);}).catch(()=>{});}
 updateAdminStats();setInterval(updateAdminStats,5000);
 </script>
 """,
@@ -3499,7 +3497,7 @@ updateAdminStats();setInterval(updateAdminStats,5000);
 
 
 def render_admin_online_breakdown_panel():
-    breakdown = load_admin_backend_online_breakdown(force=False)
+    breakdown = load_admin_backend_online_breakdown(force=True)
     totals = breakdown.get("totals", {}) if isinstance(breakdown, dict) else {}
     servers = list((breakdown or {}).get("servers", [])) if isinstance(breakdown, dict) else []
 
@@ -3737,7 +3735,7 @@ def main_stats():
     visits = load_visits()
     requested_scope = str(request.args.get("scope", "") or "").strip().lower()
     if requested_scope == "all":
-        online_stats = load_backend_summary_counters(force=False)
+        online_stats = load_backend_summary_counters(force=True)
         online_stats["scope"] = "all"
         online_stats["scope_label"] = "All Servers"
         online_stats["scope_note"] = "All connected servers" if backend_configured() else "No backend connected"
@@ -3748,8 +3746,6 @@ def main_stats():
     ssh_online_users = max(int(online_stats.get("ssh_online_users", 0) or 0), 0)
     openvpn_online_users = max(int(online_stats.get("openvpn_online_users", 0) or 0), 0)
     online_users = ssh_online_users + openvpn_online_users
-    if online_users <= 0:
-        online_users = max(int(online_stats.get("online_users", 0) or 0), 0)
     response = jsonify(
         {
             "online_users": online_users,
@@ -3959,7 +3955,7 @@ def admin_online_breakdown():
         response = jsonify({"ok": False, "error": "unauthorized"})
         response.status_code = 401
         return response
-    response = jsonify(load_admin_backend_online_breakdown(force=False))
+    response = jsonify(load_admin_backend_online_breakdown(force=True))
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
 
