@@ -49,6 +49,7 @@ BACKEND_LOCATION_CACHE_TTL = 3600
 ADMIN_ACCOUNT_GROUPS_CACHE_TTL = 10
 PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
+ADS_ENABLED = str(os.environ.get("ENABLE_ADS", "")).strip().lower() in {"1", "true", "yes", "on"}
 
 SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
@@ -2658,6 +2659,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 <body>
 <div class="loading-overlay" id="loadingOverlay"><div class="loading-spinner"></div><div class="loading-text">Creating your account...</div></div>
 {{ navbar|safe }}
+{% if show_ads %}
 <div class="global-ad-wrap">
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
   <div class="global-ad-shell">
@@ -2672,7 +2674,9 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
        (adsbygoogle = window.adsbygoogle || []).push({});
   </script>
 </div>
+{% endif %}
 {{ content|safe }}
+{% if show_ads %}
 <div class="global-ad-wrap">
   <div class="global-ad-shell">
     <ins class="adsbygoogle"
@@ -2685,6 +2689,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
        (adsbygoogle = window.adsbygoogle || []).push({});
   </script>
 </div>
+{% endif %}
 <script>
 document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='/')return '/';return v.replace(/\/+$/,'')||'/';};const p=n(window.location.pathname);document.querySelectorAll('.nav-link').forEach(a=>{const h=n(a.getAttribute('href'));if(p===h||(p==='/'&&h==='/main'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
 </script>
@@ -2696,6 +2701,8 @@ document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='
 def navbar_html():
     announcement_link = '<a href="/readme" class="nav-link"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
     mobile_announcement = '<a href="/readme"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
+    guide_link = '<a href="/guide" class="nav-link"><i class="fa-solid fa-book-open"></i> Guide</a>'
+    mobile_guide = '<a href="/guide"><i class="fa-solid fa-book-open"></i> Guide</a>'
     show_status_link = has_explicit_backend_selection()
     status_link = '<a href="/status" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
     mobile_status_link = '<a href="/status"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
@@ -2710,6 +2717,7 @@ def navbar_html():
   <div class="navbar-nav">
     <a href="/main" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
     {status_link}
+    {guide_link}
     <a href="/hostname-to-ip" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {announcement_link}
@@ -2719,6 +2727,7 @@ def navbar_html():
   <div class="mobile-menu" id="mobile-menu">
     <a href="/main"><i class="fa-solid fa-house"></i> Home</a>
     {mobile_status_link}
+    {mobile_guide}
     <a href="/hostname-to-ip"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
     <a href="/ip-lookup"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
     {mobile_announcement}
@@ -2728,8 +2737,14 @@ def navbar_html():
 """
 
 
-def render_page(title, content):
-    return render_template_string(BASE_TEMPLATE, title=title, navbar=Markup(navbar_html()), content=Markup(content))
+def render_page(title, content, show_ads=False):
+    return render_template_string(
+        BASE_TEMPLATE,
+        title=title,
+        navbar=Markup(navbar_html()),
+        content=Markup(content),
+        show_ads=bool(ADS_ENABLED and show_ads),
+    )
 
 
 def build_service_cards():
@@ -3308,6 +3323,113 @@ def render_donate():
     )
 
 
+def render_guide_page():
+    ssh_icon = service_icon("ssh")
+    vless_icon = service_icon("vless")
+    current_server_note = render_selected_server_note(change_href="/main", include_change=True, margin_style="margin:0 auto 1.2rem auto;")
+    primary_href = "/services" if has_explicit_backend_selection() else "/main"
+    primary_label = "Open Services" if has_explicit_backend_selection() else "Choose Server First"
+    return render_page(
+        "Guide",
+        f"""
+<div class="container" style="max-width:980px;">
+  <div class="neo-box">
+    <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;flex-wrap:wrap;">
+      <i class="fa-solid fa-book-open" style="font-size:1.8em;color:var(--accent-color);"></i>
+      <h2 class="section-title" style="margin:0;">GUIDE & FAQ</h2>
+    </div>
+    <div style="text-align:center;color:var(--text-secondary);max-width:760px;margin:0 auto 1.2rem auto;">This page explains the full flow for creating an account, using SSH or VLESS in your client app, and fixing the most common connection problems.</div>
+    {current_server_note}
+    <div class="services-grid" style="margin-bottom:1.2rem;">
+      <a href="#quick-start" style="text-decoration:none;color:inherit;"><div class="service-item" style="scroll-margin-top:110px;"><div class="link-title"><i class="fa-solid fa-rocket"></i> Quick Start</div><div style="color:var(--text-secondary);">The fastest path from server selection to a working account.</div></div></a>
+      <a href="#ssh-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{ssh_icon}" style="height:1.05em;"> How To Use SSH</div><div style="color:var(--text-secondary);">What details to copy and where to place them in an SSH tunnel app.</div></div></a>
+      <a href="#vless-guide" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><img src="{vless_icon}" style="height:1.05em;"> How To Use VLESS</div><div style="color:var(--text-secondary);">When to use TLS or Non-TLS and how to import your VLESS link.</div></div></a>
+      <a href="#faq" style="text-decoration:none;color:inherit;"><div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> FAQ</div><div style="color:var(--text-secondary);">Simple answers for limits, errors, expired accounts, and failed connections.</div></div></a>
+    </div>
+    <div id="quick-start" class="link-box" style="scroll-margin-top:110px;">
+      <div class="link-title"><i class="fa-solid fa-rocket"></i> Quick Start</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">1. Choose a Server</div><div style="font-weight:700;">Pick the country or server you want on the Home page, then open Services.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">2. Create an Account</div><div style="font-weight:700;">Choose SSH or VLESS and create an account using your preferred username.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">3. Copy the Details</div><div style="font-weight:700;">Use the result page as your source of truth for host, username, password, ports, or VLESS link.</div></div>
+        <div class="status-card" style="padding:.95rem;"><div class="status-label">4. Import or Fill Your App</div><div style="font-weight:700;">Paste the generated link for VLESS, or manually enter the SSH details in your tunnel app.</div></div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:1rem;">
+        <a href="{primary_href}" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-right"></i> {primary_label}</button></a>
+        <a href="/main" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-earth-asia"></i> Server List</button></a>
+      </div>
+    </div>
+    <div id="ssh-guide" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><img src="{ssh_icon}" style="height:1.05em;"> How To Use SSH</div>
+      <div style="color:var(--text-secondary);margin-bottom:1rem;">Use SSH if your app expects classic SSH login details such as host, username, password, and port.</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">What You Need</div>
+          <div style="font-weight:700;">Host or domain, username, password, and the correct port from the result page.</div>
+        </div>
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">Recommended Ports</div>
+          <div style="font-weight:700;">Use `443` for SSL or TLS style setups, `80` for WS or HTTP style setups, and `22` for direct SSH when supported.</div>
+        </div>
+      </div>
+      <div class="services-grid" style="margin-top:1rem;">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 1</div><div>Create an SSH account from the Services page and keep the result page open.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 2</div><div>Open your SSH-capable tunnel app and create a new profile or account entry.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 3</div><div>Fill in the host or domain, then add your username and password exactly as shown.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 4</div><div>Choose the transport your app expects. If it asks for SSL, TLS, WS, or proxy fields, match them to the SSH details page.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 5</div><div>Save the profile and connect. If the app shows authentication failed, re-check username, password, and selected port.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 6</div><div>If connection still fails, open the Status page to confirm the selected server is online before trying again.</div></div>
+      </div>
+      <div class="success-msg" style="margin-top:1rem;background:rgba(124,16,39,.06);border-left-color:var(--warning);">
+        <i class="fa-solid fa-circle-info" style="color:var(--warning);"></i>
+        <div>Exact menu names depend on the app you use, but the important SSH values are always the same: host, username, password, and the correct port.</div>
+      </div>
+    </div>
+    <div id="vless-guide" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><img src="{vless_icon}" style="height:1.05em;"> How To Use VLESS</div>
+      <div style="color:var(--text-secondary);margin-bottom:1rem;">VLESS is usually easier because the panel gives you a ready-to-import link. Most VLESS apps can import it directly.</div>
+      <div class="status-grid-2">
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">TLS Link</div>
+          <div style="font-weight:700;">Best default choice when your app supports VLESS over TLS. Start with this unless you specifically need Non-TLS.</div>
+        </div>
+        <div class="status-card" style="padding:.95rem;">
+          <div class="status-label">Non-TLS Link</div>
+          <div style="font-weight:700;">Use this only when your network, server setup, or client app requires the non-TLS profile.</div>
+        </div>
+      </div>
+      <div class="services-grid" style="margin-top:1rem;">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 1</div><div>Create a VLESS account and copy either the TLS link or the Non-TLS link from the result page.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 2</div><div>Open your VLESS or Xray client and use its import feature if it supports importing a URI or clipboard link.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 3</div><div>If your app does not import automatically, create a profile manually using the values stored inside the generated VLESS link.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 4</div><div>Keep the transport as WebSocket when the profile expects it, and make sure host, path, SNI, and port match the imported config.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 5</div><div>Leave the bypass option on Default unless you already know your network needs a specific host or routing setup.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-list-ol"></i> Step 6</div><div>Save, connect, and switch between TLS and Non-TLS only if one profile fails and the other is recommended for your setup.</div></div>
+      </div>
+      <div class="info-grid" style="margin-top:1rem;">
+        <div>If import fails:</div><div>Copy the full VLESS link again and make sure there are no extra spaces before or after it.</div>
+        <div>If connection fails:</div><div>Check the selected server status, verify the account is not expired, and confirm your device date and time are correct.</div>
+      </div>
+    </div>
+    <div id="faq" class="link-box" style="margin-top:1.2rem;scroll-margin-top:110px;">
+      <div class="link-title"><i class="fa-solid fa-circle-question"></i> FAQ</div>
+      <div class="services-grid">
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Which server should I choose?</div><div>Choose the server with the best location for you, then prefer one that shows healthy status and low ping when available.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> SSH or VLESS?</div><div>Use SSH when your client app expects SSH login details. Use VLESS when your client supports VLESS or Xray profiles and link import.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why do I see a wait message?</div><div>The panel has a cooldown between account creations, so you may need to wait a few minutes before creating another account.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why can't I create more accounts today?</div><div>The selected server has a daily creation limit per service. Try again the next day or switch to another available server.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> What does expired mean?</div><div>Your account has passed its validity period. Create a new account or ask an admin to extend the expiration.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why is login rejected?</div><div>Most failed logins come from wrong username, wrong password, wrong port, or importing the wrong profile for the selected protocol.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Why does my app ask for Host or SNI?</div><div>Some TLS, SSL, and WebSocket clients require these fields. If you imported the generated profile, they should already be filled correctly.</div></div>
+        <div class="service-item"><div class="link-title"><i class="fa-solid fa-circle-question"></i> Where do I check if the server is alive?</div><div>Open the Status page after selecting a server. If the backend is down, wait for it to recover before retrying.</div></div>
+      </div>
+    </div>
+  </div>
+</div>""",
+        show_ads=True,
+    )
+
+
 def render_readme():
     return render_page(
         "Announcement",
@@ -3317,6 +3439,7 @@ def render_readme():
   <div class="announcement-content" style="font-size:1.1em;color:var(--text-primary);padding:1em 0;">{announcement_html()}</div>
   <div style="display:flex;justify-content:center;margin-top:1.5rem;"><a href="/main" style="text-decoration:none;display:inline-block;width:100%;"><button style="width:100%;max-width:400px;min-width:220px;font-size:1.15em;padding:16px 0;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);border-radius:16px;font-weight:700;box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a></div>
 </div></div>""",
+        show_ads=announcement_exists(),
     )
 
 
@@ -3868,6 +3991,11 @@ def ip_lookup_action():
 @app.get("/donate")
 def donate_page():
     return render_donate()
+
+
+@app.get("/guide")
+def guide_page():
+    return render_guide_page()
 
 
 @app.get("/readme")
