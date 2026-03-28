@@ -2774,7 +2774,6 @@ def render_server_selector(redirect_to="/services", show_header=True):
     backends = load_backends()
     if not backends:
         return ""
-    current_id = explicitly_selected_backend_id()
     backend_locations = {}
     max_workers = max(1, min(6, len(backends)))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -2797,13 +2796,8 @@ def render_server_selector(redirect_to="/services", show_header=True):
             if country_code
             else '<span class="server-flag-fallback"><i class="fa-solid fa-globe"></i></span>'
         )
-        is_active = backend["id"] == current_id
-        active_class = " is-active" if is_active else ""
-        badge_html = (
-            '<span class="server-badge active"><i class="fa-solid fa-circle-check"></i> Active</span>'
-            if is_active
-            else '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Select</span>'
-        )
+        active_class = ""
+        badge_html = '<span class="server-badge"><i class="fa-solid fa-arrow-right"></i> Select</span>'
         location_bits = [bit for bit in [city, country] if bit]
         location_label = ", ".join(location_bits) if location_bits else display_label
         health_html = (
