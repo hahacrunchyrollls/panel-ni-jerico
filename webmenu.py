@@ -18,6 +18,11 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None
+
 from flask import Flask, Response, jsonify, has_request_context, redirect, render_template_string, request, session
 from markupsafe import Markup
 
@@ -50,6 +55,11 @@ ADMIN_ACCOUNT_GROUPS_CACHE_TTL = 10
 PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 ADS_ENABLED = str(os.environ.get("ENABLE_ADS", "")).strip().lower() in {"1", "true", "yes", "on"}
+DAILY_RESET_TIME_LABEL = "12:00 AM PH time"
+try:
+    PHILIPPINE_TIMEZONE = ZoneInfo("Asia/Manila") if ZoneInfo is not None else None
+except Exception:
+    PHILIPPINE_TIMEZONE = None
 
 SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
@@ -221,8 +231,14 @@ def save_json(path: Path, payload):
         return False
 
 
+def _ph_now():
+    if PHILIPPINE_TIMEZONE is not None:
+        return datetime.now(PHILIPPINE_TIMEZONE)
+    return datetime.utcnow() + timedelta(hours=8)
+
+
 def _ph_date():
-    return (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d")
+    return _ph_now().strftime("%Y-%m-%d")
 
 
 def get_request_ip():
@@ -242,11 +258,11 @@ def current_host():
 
 
 def current_year_label():
-    return (datetime.utcnow() + timedelta(hours=8)).strftime("%Y")
+    return _ph_now().strftime("%Y")
 
 
 def legal_last_updated_label():
-    return (datetime.utcnow() + timedelta(hours=8)).strftime("%B %d, %Y").replace(" 0", " ")
+    return _ph_now().strftime("%B %d, %Y").replace(" 0", " ")
 
 
 def env_first(*names):
@@ -2811,6 +2827,8 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-link:hover,.footer-link:focus{color:#fff;transform:translateX(4px);outline:none;}
 .footer-bottom{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,.14);padding-top:1rem;margin-top:1.6rem;position:relative;z-index:1;}
 .footer-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:rgba(255,229,235,.72);font-size:.92rem;font-weight:700;}
+.footer-reset-note{display:inline-flex;align-items:center;gap:8px;color:rgba(255,238,242,.82);}
+.footer-reset-note i{color:#ffd8df;}
 .footer-separator{opacity:.4;}
 .footer-bottom-links{display:flex;gap:16px;flex-wrap:wrap;}
 .footer-bottom-link{color:rgba(255,243,246,.78);text-decoration:none;font-weight:700;transition:var(--transition);}
@@ -2826,7 +2844,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 @media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
 @media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.35rem .45rem;max-width:180px}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.35rem .45rem;max-width:180px}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
@@ -2916,6 +2934,7 @@ def navbar_html():
 def footer_html():
     host = html.escape(current_host())
     year = html.escape(current_year_label())
+    reset_time = html.escape(DAILY_RESET_TIME_LABEL)
     announcement_link = '<a href="/readme" class="footer-link"><i class="fa-solid fa-bullhorn"></i><span>Announcement</span></a>' if announcement_exists() else ""
     tools_tail_link = (
         '<a href="/status" class="footer-link"><i class="fa-solid fa-server"></i><span>Server Status</span></a>'
@@ -2974,6 +2993,8 @@ def footer_html():
         <span>Copyright {year} FUJI VPN</span>
         <span class="footer-separator">|</span>
         <span>Serving {host}</span>
+        <span class="footer-separator">|</span>
+        <span class="footer-reset-note"><i class="fa-regular fa-clock"></i> Daily limit reset: {reset_time}</span>
       </div>
       <div class="footer-bottom-links">
         <a href="/terms-of-service" class="footer-bottom-link">Terms</a>
@@ -4236,7 +4257,7 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     {admin_stats_html}
     {admin_online_breakdown_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
     </div>
     {account_manager_html}
@@ -4474,7 +4495,7 @@ def submit_service_request(service):
         backend_name = backend_display_label(backend) if backend else "the selected server"
         return render_service_form(
             service,
-            error=f"Daily {service_label(service)} account creation limit reached for {backend_name} today.",
+            error=f"Daily {service_label(service)} account creation limit reached for {backend_name} today. It resets at {DAILY_RESET_TIME_LABEL}.",
             values=values,
         )
     payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
