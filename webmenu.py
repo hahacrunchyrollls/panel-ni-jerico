@@ -2684,8 +2684,10 @@ document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='
 def navbar_html():
     announcement_link = '<a href="/readme" class="nav-link"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
     mobile_announcement = '<a href="/readme"><i class="fa-solid fa-bullhorn"></i> Announcement</a>' if announcement_exists() else ""
-    status_link = '<a href="/status" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
-    mobile_status_link = '<a href="/status"><i class="fa-solid fa-server"></i> Status</a>' if has_explicit_backend_selection() else ""
+    on_home_page = has_request_context() and request.path in {"/", "/main"}
+    show_status_link = has_explicit_backend_selection() or on_home_page
+    status_link = '<a href="/status" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
+    mobile_status_link = '<a href="/status"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
     visitor_ip = html.escape(get_request_ip())
     return f"""
 <nav class="navbar">
@@ -3570,6 +3572,7 @@ def favicon_legacy():
 @app.get("/")
 @app.get("/main")
 def main_page():
+    clear_selected_backend()
     return render_home()
 
 
