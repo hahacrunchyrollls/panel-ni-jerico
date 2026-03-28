@@ -236,6 +236,14 @@ def current_host():
     return host.split(":")[0]
 
 
+def current_year_label():
+    return (datetime.utcnow() + timedelta(hours=8)).strftime("%Y")
+
+
+def legal_last_updated_label():
+    return (datetime.utcnow() + timedelta(hours=8)).strftime("%B %d, %Y").replace(" 0", " ")
+
+
 def env_first(*names):
     for name in names:
         value = os.environ.get(name, "").strip()
@@ -2574,12 +2582,13 @@ BASE_TEMPLATE = """
 <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/shoelace.js"></script>
 <style>
 :root{--primary-color:#7c1027;--primary-hover:#5d0919;--accent-color:#a91e3c;--accent-hover:#c13350;--bg-gradient:linear-gradient(180deg,#fffefb 0%,#f8ebef 48%,#fff8fa 100%);--card-bg:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);--card-border:#5d0919;--card-shadow:8px 8px 0 rgba(93,9,25,.88);--soft-shadow:0 20px 42px rgba(93,9,25,.14);--success:#8f1730;--error:#391019;--warning:#b54e61;--text-primary:#381018;--text-secondary:#6a2030;--text-muted:#955663;--surface:#ffffff;--surface-alt:#fff3f6;--paper:#fffaf8;--ink:#1f060c;--border-radius:18px;--transition:all .22s ease;}
-body{background:var(--bg-gradient);color:var(--text-primary);font-family:'Comic Neue','Trebuchet MS',sans-serif;margin:0;min-height:100vh;line-height:1.6;overflow-x:hidden;position:relative;}
+body{background:var(--bg-gradient);color:var(--text-primary);font-family:'Comic Neue','Trebuchet MS',sans-serif;margin:0;min-height:100vh;line-height:1.6;overflow-x:hidden;position:relative;display:flex;flex-direction:column;}
 body::before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle,rgba(124,16,39,.13) 0 1.6px,transparent 1.8px 100%) 0 0/24px 24px,radial-gradient(circle,rgba(124,16,39,.08) 0 1.4px,transparent 1.7px 100%) 12px 12px/24px 24px,linear-gradient(135deg,rgba(124,16,39,.06) 0%,transparent 35%,rgba(124,16,39,.04) 100%);}
 a{color:var(--primary-color);}
 button{background:linear-gradient(180deg,var(--primary-color) 0%,var(--accent-color) 100%);color:#fff;border:3px solid var(--ink);border-radius:16px;font-weight:700;font-size:1rem;padding:14px 28px;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:5px 5px 0 var(--ink);font-family:'Bangers','Comic Neue',cursive;letter-spacing:.08em;text-transform:uppercase;}
 button:hover,button:focus{transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink);background:linear-gradient(180deg,var(--accent-hover) 0%,var(--primary-color) 100%);outline:none;}
-.container{width:95%;max-width:720px;margin:2rem auto;padding:0 1rem;}
+.page-main{flex:1 0 auto;}
+.container{width:min(100%,1180px);max-width:1180px;margin:2rem auto;padding:0 1rem;box-sizing:border-box;}
 .neo-box{background:var(--card-bg);border-radius:var(--border-radius);box-shadow:var(--card-shadow),var(--soft-shadow);padding:1.8rem 1.5rem;margin-bottom:2rem;border:3px solid var(--card-border);position:relative;overflow:hidden;}
 .neo-box::before{content:"";position:absolute;top:14px;right:-48px;width:160px;height:34px;background:rgba(124,16,39,.08);transform:rotate(28deg);}
 .section-title{font-family:'Bangers','Comic Neue',cursive;font-size:clamp(2rem,5vw,3rem);letter-spacing:.08em;margin-bottom:1rem;color:var(--primary-color);background:none;-webkit-text-fill-color:initial;text-shadow:2px 2px 0 rgba(31,6,12,.14);}
@@ -2612,12 +2621,12 @@ form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bot
 .stats-container{display:flex;justify-content:center;gap:1rem;margin:1.5rem 0;flex-wrap:wrap;}
 .stat-item{background:linear-gradient(180deg,var(--surface) 0%,var(--surface-alt) 100%);border-radius:var(--border-radius);padding:.8rem 1.5rem;display:flex;align-items:center;gap:10px;border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.16);flex:1;min-width:200px;max-width:300px;}
 .stat-icon{color:var(--primary-color);font-size:1.2rem}.stat-value{font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1.3rem;letter-spacing:.04em}.stat-label{font-size:.9rem;color:var(--text-secondary);font-weight:700}
-.server-selector{max-width:760px;margin:0 auto 1.35rem auto;padding:1.1rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
+.server-selector{max-width:1040px;margin:0 auto 1.35rem auto;padding:1.2rem 1.25rem;background:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);border:3px solid var(--card-border);border-radius:22px;box-shadow:6px 6px 0 rgba(93,9,25,.24);}
 .server-selector-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1rem;text-align:left;}
 .server-selector-kicker{display:inline-flex;align-items:center;gap:8px;color:var(--primary-color);font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:1rem;letter-spacing:.08em;text-transform:uppercase;}
 .server-selector-title{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;font-weight:700;color:var(--primary-color);margin-top:.35rem;letter-spacing:.04em;}
 .server-selector-note{color:var(--text-muted);font-size:.95rem;max-width:420px;font-weight:700;}
-.server-selector-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.server-selector-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
 .server-card-form{display:block;width:100%;margin:0;}
 button.server-card-button{width:100%;padding:0;border-radius:18px;display:block;text-align:left;background:linear-gradient(180deg,#ffffff 0%,#fff3f6 100%);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.22);overflow:hidden;color:var(--text-primary);font-family:'Comic Neue','Trebuchet MS',sans-serif;letter-spacing:0;text-transform:none;}
 button.server-card-button:hover,button.server-card-button:focus{transform:translate(3px,3px);border-color:var(--primary-color);background:linear-gradient(180deg,#ffffff 0%,#ffe6ed 100%);box-shadow:1px 1px 0 rgba(93,9,25,.22);}
@@ -2643,22 +2652,55 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .server-card-host{display:flex;align-items:center;gap:8px;padding:10px 15px 14px 15px;border-top:2px dashed rgba(93,9,25,.25);color:var(--text-muted);font-size:.86rem;background:rgba(124,16,39,.04);}
 .server-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:2px solid rgba(93,9,25,.18);font-size:.78rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary);background:rgba(124,16,39,.05);}
 .server-badge.active{background:#fff;color:var(--primary-color);border-color:var(--ink);}
-.server-current-pill{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;max-width:760px;margin:0 auto 1.35rem auto;padding:.9rem 1rem;border-radius:999px;background:var(--surface);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.18);color:var(--text-secondary);font-size:.95rem;font-weight:700;}
+.server-current-pill{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;max-width:1040px;margin:0 auto 1.35rem auto;padding:.9rem 1rem;border-radius:999px;background:var(--surface);border:3px solid var(--card-border);box-shadow:4px 4px 0 rgba(93,9,25,.18);color:var(--text-secondary);font-size:.95rem;font-weight:700;}
 .server-current-dot{height:10px;width:10px;border-radius:50%;background:var(--success);box-shadow:0 0 0 6px rgba(143,23,48,.12);}
 .server-current-name{color:var(--primary-color);font-weight:800;font-family:'Bangers','Comic Neue',cursive;letter-spacing:.04em;}
 .server-current-meta{color:var(--text-muted);}
-.global-ad-wrap{width:min(100% - 2rem,960px);margin:1rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
+.site-footer{margin-top:auto;padding:0;background:linear-gradient(180deg,#8f1730 0%,#5d0919 42%,#26070d 100%);color:#fff;position:relative;overflow:hidden;border-top:1px solid rgba(255,255,255,.08);}
+.site-footer::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);}
+.site-footer::after{content:"";position:absolute;left:-140px;top:-120px;width:360px;height:360px;background:radial-gradient(circle,rgba(255,255,255,.08) 0%,rgba(255,255,255,0) 72%);pointer-events:none;}
+.footer-shell{width:min(100%,1120px);margin:0 auto;padding:2.7rem 1.25rem 1.15rem;position:relative;z-index:1;box-sizing:border-box;}
+.footer-grid{display:grid;grid-template-columns:minmax(260px,1.55fr) repeat(3,minmax(150px,1fr));gap:30px;position:relative;z-index:1;}
+.footer-brand-panel{padding-right:1rem;}
+.footer-brand-row{display:flex;align-items:center;gap:12px;margin-bottom:.9rem;}
+.footer-logo{height:54px;width:54px;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.94);flex:none;}
+.footer-title{font-family:'Bangers','Comic Neue',cursive;font-size:1.7rem;letter-spacing:.06em;color:#fff;line-height:1;}
+.footer-subtitle{margin-top:.28rem;color:rgba(255,232,238,.76);font-size:.8rem;font-weight:800;letter-spacing:.13em;text-transform:uppercase;}
+.footer-copy{color:rgba(255,241,245,.88);font-weight:700;max-width:560px;}
+.footer-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem;}
+.footer-badge{display:inline-flex;align-items:center;gap:8px;padding:.45rem .76rem;border-radius:999px;background:transparent;border:1px solid rgba(255,255,255,.16);color:#fff;font-size:.82rem;font-weight:800;}
+.footer-referral{display:inline-flex;align-items:center;justify-content:center;margin-top:1rem;padding:.5rem .6rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:220px;box-sizing:border-box;}
+.footer-referral img{display:block;width:100%;height:auto;max-width:170px;}
+.footer-column{display:flex;flex-direction:column;gap:.9rem;min-width:0;position:relative;z-index:1;}
+.footer-heading{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.08em;color:#ffd8df;}
+.footer-link-list{display:flex;flex-direction:column;gap:.62rem;}
+.footer-link{display:inline-flex;align-items:center;gap:10px;padding:.12rem 0;text-decoration:none;font-weight:700;color:rgba(255,243,246,.84);transition:var(--transition);}
+.footer-link i{width:16px;text-align:center;color:#ffd8df;}
+.footer-link:hover,.footer-link:focus{color:#fff;transform:translateX(4px);outline:none;}
+.footer-bottom{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;border-top:1px solid rgba(255,255,255,.14);padding-top:1rem;margin-top:1.6rem;position:relative;z-index:1;}
+.footer-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;color:rgba(255,229,235,.72);font-size:.92rem;font-weight:700;}
+.footer-separator{opacity:.4;}
+.footer-bottom-links{display:flex;gap:16px;flex-wrap:wrap;}
+.footer-bottom-link{color:rgba(255,243,246,.78);text-decoration:none;font-weight:700;transition:var(--transition);}
+.footer-bottom-link:hover,.footer-bottom-link:focus{color:#fff;outline:none;}
+.legal-card{max-width:1100px;margin:0 auto;}
+.legal-intro{max-width:920px;margin:0 auto 1.2rem auto;text-align:center;color:var(--text-secondary);font-weight:700;}
+.legal-sections{display:grid;gap:1rem;}
+.global-ad-wrap{width:min(100% - 2rem,1180px);margin:1rem auto 0 auto;padding:0 1rem;box-sizing:border-box;}
 .global-ad-shell{background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;overflow:visible;}
 ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 .loading-overlay{display:none;position:fixed;inset:0;z-index:9999;background:rgba(93,9,25,.78);backdrop-filter:blur(4px);justify-content:center;align-items:center;flex-direction:column;gap:1.5rem}.loading-overlay.active{display:flex}.loading-spinner{width:56px;height:56px;border:4px solid rgba(255,255,255,.24);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}.loading-text{font-family:'Bangers','Comic Neue',cursive;font-size:1.2rem;letter-spacing:.06em;color:#fff}
 @keyframes spin{to{transform:rotate(360deg);}}
+@media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
+@media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:95%;padding:0}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.35rem .45rem;max-width:180px}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
 <div class="loading-overlay" id="loadingOverlay"><div class="loading-spinner"></div><div class="loading-text">Creating your account...</div></div>
 {{ navbar|safe }}
+<main class="page-main">
 {% if show_ads %}
 <div class="global-ad-wrap">
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
@@ -2690,6 +2732,8 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
   </script>
 </div>
 {% endif %}
+ </main>
+{{ footer|safe }}
 <script>
 document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='/')return '/';return v.replace(/\/+$/,'')||'/';};const p=n(window.location.pathname);document.querySelectorAll('.nav-link').forEach(a=>{const h=n(a.getAttribute('href'));if(p===h||(p==='/'&&h==='/main'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
 </script>
@@ -2737,11 +2781,84 @@ def navbar_html():
 """
 
 
+def footer_html():
+    host = html.escape(current_host())
+    year = html.escape(current_year_label())
+    announcement_link = '<a href="/readme" class="footer-link"><i class="fa-solid fa-bullhorn"></i><span>Announcement</span></a>' if announcement_exists() else ""
+    tools_tail_link = (
+        '<a href="/status" class="footer-link"><i class="fa-solid fa-server"></i><span>Server Status</span></a>'
+        if has_explicit_backend_selection()
+        else '<a href="/main" class="footer-link"><i class="fa-solid fa-earth-asia"></i><span>Choose Server</span></a>'
+    )
+    return f"""
+<footer class="site-footer">
+  <div class="footer-shell">
+    <div class="footer-grid">
+      <div class="footer-brand-panel">
+        <div class="footer-brand-row">
+          <img src="/site-logo" alt="FUJI VPN" class="footer-logo">
+          <div>
+            <div class="footer-title">FUJI VPN</div>
+            <div class="footer-subtitle">VPN Account Panel</div>
+          </div>
+        </div>
+        <div class="footer-copy">Choose a server, create VPN accounts, review guides, and use quick network tools from one clean panel experience.</div>
+        <div class="footer-badges">
+          <span class="footer-badge"><i class="fa-solid fa-earth-asia"></i> Multi Server</span>
+          <span class="footer-badge"><i class="fa-solid fa-bolt"></i> Fast Tools</span>
+          <span class="footer-badge"><i class="fa-solid fa-shield-halved"></i> Panel Access</span>
+        </div>
+        <a class="footer-referral" href="https://www.digitalocean.com/?refcode=197466ae9d8c&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge" target="_blank" rel="noopener noreferrer">
+          <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%201.svg" alt="DigitalOcean Referral Badge" loading="lazy">
+        </a>
+      </div>
+      <div class="footer-column">
+        <div class="footer-heading">Explore</div>
+        <div class="footer-link-list">
+          <a href="/main" class="footer-link"><i class="fa-solid fa-house"></i><span>Home</span></a>
+          <a href="/guide" class="footer-link"><i class="fa-solid fa-book-open"></i><span>Guide</span></a>
+          <a href="/donate" class="footer-link"><i class="fa-solid fa-donate"></i><span>Donate</span></a>
+          {announcement_link}
+        </div>
+      </div>
+      <div class="footer-column">
+        <div class="footer-heading">Tools</div>
+        <div class="footer-link-list">
+          <a href="/hostname-to-ip" class="footer-link"><i class="fa-solid fa-globe"></i><span>Hostname to IP</span></a>
+          <a href="/ip-lookup" class="footer-link"><i class="fa-solid fa-location-dot"></i><span>IP Lookup</span></a>
+          {tools_tail_link}
+        </div>
+      </div>
+      <div class="footer-column">
+        <div class="footer-heading">Legal</div>
+        <div class="footer-link-list">
+          <a href="/terms-of-service" class="footer-link"><i class="fa-solid fa-file-signature"></i><span>Terms of Service</span></a>
+          <a href="/privacy-policy" class="footer-link"><i class="fa-solid fa-user-shield"></i><span>Privacy Policy</span></a>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div class="footer-meta">
+        <span>Copyright {year} FUJI VPN</span>
+        <span class="footer-separator">|</span>
+        <span>Serving {host}</span>
+      </div>
+      <div class="footer-bottom-links">
+        <a href="/terms-of-service" class="footer-bottom-link">Terms</a>
+        <a href="/privacy-policy" class="footer-bottom-link">Privacy</a>
+      </div>
+    </div>
+  </div>
+</footer>
+"""
+
+
 def render_page(title, content, show_ads=False):
     return render_template_string(
         BASE_TEMPLATE,
         title=title,
         navbar=Markup(navbar_html()),
+        footer=Markup(footer_html()),
         content=Markup(content),
         show_ads=bool(ADS_ENABLED and show_ads),
     )
@@ -2784,7 +2901,7 @@ def render_selected_server_note(change_href="/main", include_change=True, margin
     if include_change:
         change_link = f'<a href="{html.escape(change_href)}" style="color:var(--accent-color);text-decoration:none;font-weight:700;">Change</a>'
     return (
-        f'<div class="server-current-pill" style="{margin_style}max-width:760px;">'
+        f'<div class="server-current-pill" style="{margin_style}max-width:1040px;">'
         '<span class="server-current-dot"></span>'
         '<span>Selected server</span>'
         f'<span class="server-current-name">{html.escape(display_label)}</span>'
@@ -2940,7 +3057,7 @@ def render_services():
       <h2 class="section-title" style="margin:0;">SERVICE</h2>
     </div>
     <div style="font-size:1rem;color:var(--text-secondary);margin-bottom:1.6rem;">Choose a protocol or service for the selected server.</div>
-    <style>.create-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 auto;max-width:640px}.create-cell a{text-decoration:none;display:block}@media (max-width:480px){.create-grid{grid-template-columns:1fr}}</style>
+    <style>.create-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0 auto;max-width:980px}.create-cell a{text-decoration:none;display:block}@media (max-width:700px){.create-grid{grid-template-columns:1fr}}</style>
     {{ current_server_note|safe }}
     {% if page_error %}
     <div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);">
@@ -3323,6 +3440,105 @@ def render_donate():
     )
 
 
+def render_legal_page(page_title, heading, icon_class, intro_html, sections_html):
+    updated_label = html.escape(legal_last_updated_label())
+    return render_page(
+        page_title,
+        f"""
+<div class="container legal-card">
+  <div class="neo-box">
+    <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;flex-wrap:wrap;">
+      <i class="{icon_class}" style="font-size:1.8em;color:var(--accent-color);"></i>
+      <h2 class="section-title" style="margin:0;">{heading}</h2>
+    </div>
+    <div class="legal-intro">{intro_html}</div>
+    <div class="server-current-pill" style="max-width:1040px;margin:0 auto 1.25rem auto;">
+      <span class="server-current-dot"></span>
+      <span>Last updated</span>
+      <span class="server-current-name">{updated_label}</span>
+      <span class="server-current-meta">Applies to all panel visits and account creation requests.</span>
+    </div>
+    <div class="legal-sections">
+      {sections_html}
+    </div>
+    <div style="display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin-top:1.3rem;">
+      <a href="/main" style="text-decoration:none;"><button><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
+      <a href="/guide" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-book-open"></i> Open Guide</button></a>
+    </div>
+  </div>
+</div>""",
+    )
+
+
+def render_terms_of_service():
+    sections_html = """
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-circle-check"></i> Using This Service</div>
+  <div style="color:var(--text-secondary);">By accessing this panel, creating accounts, or using any tool on the site, you agree to these terms. If you do not agree, please stop using the service.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-user-lock"></i> Accounts and Credentials</div>
+  <div style="color:var(--text-secondary);">You are responsible for the usernames, passwords, and connection details you create or use through this panel. Keep credentials private and do not share them in a way that could harm the service or other users.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-ban"></i> Acceptable Use</div>
+  <div style="color:var(--text-secondary);">Do not use the service for abuse, spam, unauthorized access, illegal activity, attacks on other systems, or anything that may overload, damage, or disrupt the panel or connected servers.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-clock-rotate-left"></i> Availability and Changes</div>
+  <div style="color:var(--text-secondary);">Servers, features, limits, and account durations may change at any time without prior notice. Accounts may expire automatically, and access may be suspended or removed when necessary for safety, maintenance, or abuse prevention.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-triangle-exclamation"></i> Disclaimer</div>
+  <div style="color:var(--text-secondary);">This service is provided on an "as is" and "as available" basis. No warranty is made that the site or any VPN account will always be available, uninterrupted, secure, or suitable for a specific purpose. You are responsible for using the service in a lawful manner and under your own risk.</div>
+</div>
+"""
+    return render_legal_page(
+        "Terms of Service",
+        "TERMS OF SERVICE",
+        "fa-solid fa-file-signature",
+        "This page sets the basic rules for using the FUJI VPN panel, account creation tools, and related server features.",
+        sections_html,
+    )
+
+
+def render_privacy_policy():
+    host = html.escape(current_host())
+    sections_html = f"""
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-database"></i> Information We Collect</div>
+  <div style="color:var(--text-secondary);">This panel may collect technical request data such as IP address, browser session data, cookies needed for login/session handling, selected server, visit counters, admin audit entries, and form inputs you submit such as usernames and passwords required to generate accounts.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-gears"></i> How Information Is Used</div>
+  <div style="color:var(--text-secondary);">We use collected data to create VPN accounts, rate-limit requests, keep admin sessions working, show panel statistics, troubleshoot errors, enforce limits, and help protect the service from misuse.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-share-nodes"></i> Third-Party Services</div>
+  <div style="color:var(--text-secondary);">Data may be sent to connected backend servers to complete account creation requests. If you use the IP Lookup tool, requests are sent to <code>ip-api.com</code>. The site also loads fonts, icons, images, and scripts from third-party CDNs or hosts, and when ads are enabled, advertising providers may receive browser/device information in line with their own policies.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-shield-halved"></i> Retention and Security</div>
+  <div style="color:var(--text-secondary);">Reasonable steps may be taken to protect stored data, but no online service can guarantee absolute security. Data may be retained as long as needed for panel operation, security review, backend sync, or account management.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-sliders"></i> Your Choices</div>
+  <div style="color:var(--text-secondary);">If you do not want this information processed, do not use the affected features on {host}. Only submit details that are necessary to create or manage your account, and avoid entering unrelated sensitive information.</div>
+</div>
+<div class="link-box">
+  <div class="link-title"><i class="fa-solid fa-pen-to-square"></i> Policy Updates</div>
+  <div style="color:var(--text-secondary);">This policy may be updated from time to time. When it changes, the last updated date on this page will also change. Continued use of the site after an update means you accept the revised policy.</div>
+</div>
+"""
+    return render_legal_page(
+        "Privacy Policy",
+        "PRIVACY POLICY",
+        "fa-solid fa-user-shield",
+        f"This page explains how the FUJI VPN panel at <strong>{host}</strong> handles visitor, account, and session-related information.",
+        sections_html,
+    )
+
+
 def render_guide_page():
     ssh_icon = service_icon("ssh")
     vless_icon = service_icon("vless")
@@ -3335,13 +3551,13 @@ def render_guide_page():
     return render_page(
         "Guide",
         f"""
-<div class="container" style="max-width:980px;">
+<div class="container" style="max-width:1120px;">
   <div class="neo-box">
     <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;flex-wrap:wrap;">
       <i class="fa-solid fa-book-open" style="font-size:1.8em;color:var(--accent-color);"></i>
       <h2 class="section-title" style="margin:0;">GUIDE & FAQ</h2>
     </div>
-    <div style="text-align:center;color:var(--text-secondary);max-width:760px;margin:0 auto 1.2rem auto;">This page explains the full flow for creating and using SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts, plus the most common fixes when a connection does not work.</div>
+    <div style="text-align:center;color:var(--text-secondary);max-width:920px;margin:0 auto 1.2rem auto;">This page explains the full flow for creating and using SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts, plus the most common fixes when a connection does not work.</div>
     {current_server_note}
     <div class="services-grid" style="margin-bottom:1.2rem;">
       <a href="#quick-start" style="text-decoration:none;color:inherit;"><div class="service-item" style="scroll-margin-top:110px;"><div class="link-title"><i class="fa-solid fa-rocket"></i> Quick Start</div><div style="color:var(--text-secondary);">The fastest path from server selection to a working account.</div></div></a>
@@ -4078,6 +4294,18 @@ def donate_page():
 @app.get("/guide")
 def guide_page():
     return render_guide_page()
+
+
+@app.get("/terms")
+@app.get("/terms-of-service")
+def terms_page():
+    return render_terms_of_service()
+
+
+@app.get("/privacy")
+@app.get("/privacy-policy")
+def privacy_page():
+    return render_privacy_policy()
 
 
 @app.get("/readme")
