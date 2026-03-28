@@ -2870,13 +2870,8 @@ def render_server_selector(redirect_to="/services", show_header=True):
     </div>"""
 
 def render_home():
-    visits = bump_visit_count()
+    bump_visit_count()
     enabled = backend_configured()
-    online_stats = load_main_online_stats(force=False) if enabled else _empty_backend_summary()
-    counters = load_backend_summary_counters(force=False) if enabled else _empty_backend_summary()
-    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
-    online_users = max(int((online_stats or {}).get("online_users", 0) or 0), 0)
-    online_scope_note = str((online_stats or {}).get("scope_note", "") or "").strip()
     selector_html = render_server_selector("/services")
     current_server_note = render_selected_server_note(include_change=False)
     selected_latency_html = render_selected_server_latency_card()
@@ -2917,14 +2912,7 @@ def render_home():
     {{ continue_html|safe }}
   </div>
 </div>
-<div class="stats-container">
-  <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
-  <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="online-users">{{ online_users }}</div><div class="stat-label">Online Users</div><div id="online-users-scope" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_scope_note }}</div></div></div>
-  <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
-</div>
 <script>
-const mainStatsState={visits:parseInt((document.getElementById('total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('online-users')||{}).textContent||'0',10)||0};
-function updateMainStats(){fetch('/main/stats?t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))mainStatsState.visits=Math.max(mainStatsState.visits, visits);if(Number.isFinite(accounts))mainStatsState.accounts=Math.max(mainStatsState.accounts, accounts);if(Number.isFinite(online))mainStatsState.online=Math.max(0, online);document.getElementById('online-users').textContent=mainStatsState.online;document.getElementById('total-visits').textContent=mainStatsState.visits;document.getElementById('total-accounts').textContent=mainStatsState.accounts;const onlineScopeNode=document.getElementById('online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;}).catch(()=>{});}
 function formatServerHealthText(data){if(!data)return'Ping unavailable';if(data.alive){const latency=Number(data.latency_ms);if(Number.isFinite(latency)&&latency>0)return'Ping '+Math.round(latency)+' ms';return data.text||'Alive';}return data.text||'Ping unavailable';}
 function applyServerHealth(node,data){if(!node)return;const text=node.querySelector('[data-server-health-text]');node.classList.remove('is-checking','is-alive','is-dead');if(data&&data.alive){node.classList.add('is-alive');if(text)text.textContent=formatServerHealthText(data);return;}node.classList.add('is-dead');if(text)text.textContent=formatServerHealthText(data);}
 function appendPingCandidate(list,url,mode){const value=String(url||'').trim();if(!value)return;if(window.location.protocol==='https:'&&/^http:\/\//i.test(value))return;if(list.some(item=>item.url===value))return;list.push({url:value,mode:mode||'cors'});}
@@ -2935,13 +2923,9 @@ async function measureBrowserPing(status){const candidates=buildPingCandidates(s
 function mergeServerHealth(browserStatus,fallback){if(browserStatus&&browserStatus.alive)return browserStatus;if(fallback&&fallback.alive)return {alive:true,text:'Alive',source:'panel'};return browserStatus||fallback||{alive:false,text:'Dead'};}
 let serverHealthUpdating=false;
 async function updateServerHealth(){if(serverHealthUpdating)return;serverHealthUpdating=true;try{const response=await fetch('/main/server-health?t='+Date.now(),{cache:'no-store'});const data=await response.json();const statuses=(data&&data.statuses)||{};const nodes=Array.from(document.querySelectorAll('[data-server-health]'));const grouped=new Map();nodes.forEach(node=>{const backendId=node.getAttribute('data-backend-id')||'';if(!grouped.has(backendId))grouped.set(backendId,[]);grouped.get(backendId).push(node);});await Promise.all(Array.from(grouped.entries()).map(async entry=>{const backendId=entry[0];const backendNodes=entry[1];const status=statuses[backendId]||null;const browserStatus=await measureBrowserPing(status);const merged=mergeServerHealth(browserStatus,status);backendNodes.forEach(node=>applyServerHealth(node,merged));}));}catch(_error){}finally{serverHealthUpdating=false;}}
-updateMainStats();updateServerHealth();setInterval(updateMainStats,5000);setInterval(updateServerHealth,15000);
+updateServerHealth();setInterval(updateServerHealth,15000);
 </script>
 """,
-            visits=visits["total_visits"],
-            online_users=online_users,
-            total_accounts=total_accounts,
-            online_scope_note=online_scope_note,
             selector_html=Markup(selector_html),
             current_server_note=Markup(current_server_note),
             selected_latency_html=Markup(selected_latency_html),
@@ -3497,6 +3481,35 @@ def render_vless_bypass_admin():
 </div>"""
 
 
+def render_admin_stats_panel():
+    visits = load_visits()
+    counters = load_backend_summary_counters(force=False) if backend_configured() else _empty_backend_summary()
+    total_accounts = get_display_total_accounts(visits=visits, counters=counters)
+    online_users = max(int((counters or {}).get("online_users", 0) or 0), 0)
+    online_scope_note = "All connected servers" if backend_configured() else "No backend connected"
+    return render_template_string(
+        """
+<div style="margin-top:1.2rem;">
+  <div style="font-weight:700;margin-bottom:.6rem;">Panel Stats</div>
+  <div class="stats-container" style="margin:0;">
+    <div class="stat-item"><i class="fa-regular fa-eye stat-icon"></i><div><div class="stat-value" id="admin-total-visits">{{ visits }}</div><div class="stat-label">Total Visits</div></div></div>
+    <div class="stat-item"><i class="fa-solid fa-user-check stat-icon"></i><div><div class="stat-value" id="admin-online-users">{{ online_users }}</div><div class="stat-label">Online Users</div><div id="admin-online-users-scope" style="font-size:.82rem;color:var(--text-muted);font-weight:700;margin-top:2px;">{{ online_scope_note }}</div></div></div>
+    <div class="stat-item"><i class="fa-solid fa-users stat-icon"></i><div><div class="stat-value" id="admin-total-accounts">{{ total_accounts }}</div><div class="stat-label">Accounts Created</div></div></div>
+  </div>
+</div>
+<script>
+const adminStatsState={visits:parseInt((document.getElementById('admin-total-visits')||{}).textContent||'0',10)||0,accounts:parseInt((document.getElementById('admin-total-accounts')||{}).textContent||'0',10)||0,online:parseInt((document.getElementById('admin-online-users')||{}).textContent||'0',10)||0};
+function updateAdminStats(){fetch('/main/stats?scope=all&t='+Date.now(),{cache:'no-store'}).then(r=>r.json()).then(data=>{const visits=Number(data&&data.total_visits);const accounts=Number(data&&data.total_accounts);const online=Number(data&&data.online_users);const onlineScope=String(data&&data.online_scope_note||'').trim();if(Number.isFinite(visits))adminStatsState.visits=Math.max(adminStatsState.visits, visits);if(Number.isFinite(accounts))adminStatsState.accounts=Math.max(adminStatsState.accounts, accounts);if(Number.isFinite(online))adminStatsState.online=Math.max(0, online);document.getElementById('admin-total-visits').textContent=adminStatsState.visits;document.getElementById('admin-online-users').textContent=adminStatsState.online;document.getElementById('admin-total-accounts').textContent=adminStatsState.accounts;const onlineScopeNode=document.getElementById('admin-online-users-scope');if(onlineScopeNode)onlineScopeNode.textContent=onlineScope;}).catch(()=>{});}
+updateAdminStats();setInterval(updateAdminStats,5000);
+</script>
+""",
+        visits=visits.get("total_visits", 0),
+        online_users=online_users,
+        total_accounts=total_accounts,
+        online_scope_note=online_scope_note,
+    )
+
+
 def render_admin(success=None, error=None):
     if not session.get("admin_authenticated"):
         hint = "" if os.environ.get("ADMIN_PASSWORD") else '<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-info" style="color:var(--error);"></i><div>Set <code>ADMIN_PASSWORD</code> in Vercel to enable admin login.</div></div>'
@@ -3516,6 +3529,7 @@ def render_admin(success=None, error=None):
     expiry = get_create_account_expiry()
     bypass_editor_html = render_vless_bypass_admin()
     account_manager_html = render_admin_account_manager()
+    admin_stats_html = render_admin_stats_panel()
     events = recent_admin_events(8)
     event_cards = "".join(
         f'<div class="link-box"><div style="font-weight:700">{html.escape(e["action"].replace("_"," ").title())}</div><div style="color:var(--text-muted);font-size:.9rem">{html.escape(e["time"])} | {html.escape(e["status"])}</div><div style="margin-top:.5rem">{html.escape(json.dumps(e.get("details", {})))}</div></div>'
@@ -3534,6 +3548,7 @@ def render_admin(success=None, error=None):
       <div><h2 class="section-title" style="margin:0;">Admin Dashboard</h2><div style="color:var(--text-secondary);max-width:620px;">Serverless-safe controls for limits, defaults, audit history, and live account management across your connected backends.</div></div>
       <a href="/admin/logout" style="text-decoration:none;"><button style="background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</button></a>
     </div>
+    {admin_stats_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
@@ -3623,7 +3638,14 @@ def status_full():
 @app.get("/main/stats")
 def main_stats():
     visits = load_visits()
-    online_stats = load_main_online_stats(force=False)
+    requested_scope = str(request.args.get("scope", "") or "").strip().lower()
+    if requested_scope == "all":
+        online_stats = load_backend_summary_counters(force=False)
+        online_stats["scope"] = "all"
+        online_stats["scope_label"] = "All Servers"
+        online_stats["scope_note"] = "All connected servers" if backend_configured() else "No backend connected"
+    else:
+        online_stats = load_main_online_stats(force=False)
     counters = load_backend_summary_counters(force=False)
     total_accounts = get_display_total_accounts(visits=visits, counters=counters)
     response = jsonify(
