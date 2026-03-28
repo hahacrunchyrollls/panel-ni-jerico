@@ -2464,14 +2464,22 @@ def extract_backend_status_summary(payload, backend=None):
                 normalized_entry = _normalize_backend_online_entry(raw_entry, backend=backend)
                 if normalized_entry:
                     online_entries.append(normalized_entry)
-        has_online_fields = ssh_online_users not in (None, "") or openvpn_online_users not in (None, "")
         entry_ssh_online_users = sum(1 for entry in online_entries if entry.get("service") == "ssh")
         entry_openvpn_online_users = sum(1 for entry in online_entries if entry.get("service") == "openvpn")
-        ssh_online_users = max(_coerce_non_negative_int(ssh_online_users), entry_ssh_online_users)
-        openvpn_online_users = max(_coerce_non_negative_int(openvpn_online_users), entry_openvpn_online_users)
+        has_ssh_field = ssh_online_users not in (None, "")
+        has_openvpn_field = openvpn_online_users not in (None, "")
+        if has_ssh_field:
+            ssh_online_users = _coerce_non_negative_int(ssh_online_users)
+        else:
+            ssh_online_users = entry_ssh_online_users
+        if has_openvpn_field:
+            openvpn_online_users = _coerce_non_negative_int(openvpn_online_users)
+        else:
+            openvpn_online_users = entry_openvpn_online_users
         online_users = ssh_online_users + openvpn_online_users
         if (
-            not has_online_fields
+            not has_ssh_field
+            and not has_openvpn_field
             and total_accounts in (None, "")
             and not online_entries
         ):
