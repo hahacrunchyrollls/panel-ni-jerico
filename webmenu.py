@@ -2915,12 +2915,15 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.35rem;margin-top:0;padding:0;border-radius:0;background:transparent;border:0;box-shadow:none;max-width:none;min-width:0;box-sizing:border-box;text-decoration:none;min-height:92px;}
 .footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:.84rem;letter-spacing:.05em;color:#fff;line-height:.92;}
 .footer-referral img{display:block;width:100%;height:auto;max-width:160px;flex:none;}
-.footer-paypal-button{display:inline-flex;align-items:center;gap:10px;margin-top:0;padding:.58rem .72rem;border-radius:16px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:none;min-width:0;min-height:92px;box-sizing:border-box;transition:var(--transition);}
-.footer-paypal-button:hover,.footer-paypal-button:focus{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(27,12,0,.25);outline:none;color:#4a0a14;}
-.footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:34px;width:34px;border-radius:12px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:1rem;flex:none;}
-.footer-paypal-copy{display:flex;flex-direction:column;gap:0;min-width:0;}
-.footer-paypal-eyebrow{font-size:.62rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:rgba(74,10,20,.72);}
-.footer-paypal-label{font-family:'Bangers','Comic Neue',cursive;font-size:.94rem;letter-spacing:.04em;line-height:.92;color:#4a0a14;}
+.footer-paypal-button{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.35rem;margin-top:0;padding:0;border-radius:0;background:transparent;border:0;box-shadow:none;text-decoration:none;color:inherit;max-width:none;min-width:0;min-height:92px;box-sizing:border-box;}
+.footer-paypal-button:hover,.footer-paypal-button:focus{outline:none;color:inherit;}
+.footer-paypal-badge{display:inline-flex;align-items:center;gap:9px;width:160px;min-height:58px;padding:.45rem .62rem;border-radius:12px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.24);box-shadow:3px 3px 0 rgba(27,12,0,.24);box-sizing:border-box;transition:var(--transition);}
+.footer-paypal-button:hover .footer-paypal-badge,.footer-paypal-button:focus .footer-paypal-badge{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(27,12,0,.24);}
+.footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:32px;width:32px;border-radius:11px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:.95rem;flex:none;color:#5d0919;}
+.footer-paypal-copy{display:flex;flex-direction:column;gap:1px;min-width:0;}
+.footer-paypal-eyebrow{font-size:.56rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:rgba(74,10,20,.72);}
+.footer-paypal-brand{font-size:.84rem;font-weight:900;letter-spacing:.04em;color:#5d0919;line-height:.9;text-transform:uppercase;}
+.footer-paypal-title{font-family:'Bangers','Comic Neue',cursive;font-size:.84rem;letter-spacing:.05em;color:#fff;line-height:.92;}
 .footer-column{display:flex;flex-direction:column;gap:.9rem;min-width:0;position:relative;z-index:1;}
 .footer-heading{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.08em;color:#ffd8df;}
 .footer-link-list{display:flex;flex-direction:column;gap:.62rem;}
@@ -2946,7 +2949,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 @media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
 @media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-support-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-width:none}.footer-referral{padding:0;gap:.35rem;align-items:flex-start;min-height:80px}.footer-referral-title{font-size:.78rem;letter-spacing:.04em}.footer-referral img{max-width:132px}.footer-paypal-button{width:100%;padding:.68rem .72rem;gap:8px;min-height:80px}.footer-paypal-icon{height:34px;width:34px;border-radius:11px;font-size:1.05rem}.footer-paypal-copy{gap:1px}.footer-paypal-eyebrow{font-size:.58rem;letter-spacing:.08em}.footer-paypal-label{font-size:.84rem;letter-spacing:.03em}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-support-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-width:none}.footer-referral{padding:0;gap:.35rem;align-items:flex-start;min-height:80px}.footer-referral-title{font-size:.78rem;letter-spacing:.04em}.footer-referral img{max-width:132px}.footer-paypal-button{width:100%;gap:.32rem;min-height:80px}.footer-paypal-badge{width:132px;min-height:48px;padding:.34rem .48rem;gap:7px;border-radius:11px}.footer-paypal-icon{height:28px;width:28px;border-radius:10px;font-size:.9rem}.footer-paypal-copy{gap:1px}.footer-paypal-eyebrow{font-size:.5rem;letter-spacing:.07em}.footer-paypal-brand{font-size:.72rem;letter-spacing:.03em}.footer-paypal-title{font-size:.78rem;letter-spacing:.04em}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
@@ -3134,11 +3137,14 @@ def footer_html():
     if paypal_url:
         paypal_button = f"""
         <a class="footer-paypal-button" href="{html.escape(paypal_url, quote=True)}" target="_blank" rel="noopener noreferrer">
-          <span class="footer-paypal-icon"><i class="fa-brands fa-paypal"></i></span>
-          <span class="footer-paypal-copy">
-            <span class="footer-paypal-eyebrow">Support Dev</span>
-            <span class="footer-paypal-label">{html.escape(PAYPAL_DONATION_LABEL)}</span>
+          <span class="footer-paypal-badge">
+            <span class="footer-paypal-icon"><i class="fa-brands fa-paypal"></i></span>
+            <span class="footer-paypal-copy">
+              <span class="footer-paypal-eyebrow">Support Dev</span>
+              <span class="footer-paypal-brand">PayPal</span>
+            </span>
           </span>
+          <span class="footer-paypal-title">{html.escape(PAYPAL_DONATION_LABEL)}</span>
         </a>"""
     tools_tail_link = (
         '<a href="/status" class="footer-link"><i class="fa-solid fa-server"></i><span>Server Status</span></a>'
