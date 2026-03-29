@@ -2911,10 +2911,11 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-copy{color:rgba(255,241,245,.88);font-weight:700;max-width:560px;}
 .footer-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem;}
 .footer-badge{display:inline-flex;align-items:center;gap:8px;padding:.45rem .76rem;border-radius:999px;background:transparent;border:1px solid rgba(255,255,255,.16);color:#fff;font-size:.82rem;font-weight:800;}
-.footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;gap:.5rem;margin-top:1rem;padding:.65rem .8rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:220px;box-sizing:border-box;text-decoration:none;}
+.footer-support-row{display:grid;grid-template-columns:minmax(0,220px) minmax(0,280px);gap:14px;align-items:stretch;justify-content:flex-start;margin-top:1rem;max-width:540px;}
+.footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.5rem;margin-top:0;padding:.65rem .8rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:none;min-width:0;box-sizing:border-box;text-decoration:none;}
 .footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.06em;color:#fff;line-height:1;}
 .footer-referral img{display:block;width:100%;height:auto;max-width:170px;flex:none;}
-.footer-paypal-button{display:inline-flex;align-items:center;gap:12px;margin-top:1rem;padding:.9rem 1rem;border-radius:18px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:280px;box-sizing:border-box;transition:var(--transition);}
+.footer-paypal-button{display:inline-flex;align-items:center;gap:12px;margin-top:0;padding:.9rem 1rem;border-radius:18px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:none;min-width:0;box-sizing:border-box;transition:var(--transition);}
 .footer-paypal-button:hover,.footer-paypal-button:focus{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(27,12,0,.25);outline:none;color:#4a0a14;}
 .footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:40px;width:40px;border-radius:14px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:1.2rem;flex:none;}
 .footer-paypal-copy{display:flex;flex-direction:column;gap:2px;min-width:0;}
@@ -2945,7 +2946,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 @media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
 @media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.45rem .5rem;max-width:180px;gap:.45rem;align-items:flex-start}.footer-referral-title{font-size:.9rem}.footer-referral img{max-width:150px}.footer-paypal-button{margin-top:.75rem;max-width:100%;width:100%;padding:.8rem .85rem;gap:10px}.footer-paypal-icon{height:36px;width:36px;border-radius:12px}.footer-paypal-label{font-size:1rem}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-support-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-width:none}.footer-referral{padding:.5rem .55rem;gap:.4rem;align-items:flex-start}.footer-referral-title{font-size:.82rem;letter-spacing:.04em}.footer-referral img{max-width:132px}.footer-paypal-button{width:100%;padding:.72rem .75rem;gap:8px}.footer-paypal-icon{height:34px;width:34px;border-radius:11px;font-size:1.05rem}.footer-paypal-copy{gap:1px}.footer-paypal-eyebrow{font-size:.58rem;letter-spacing:.08em}.footer-paypal-label{font-size:.84rem;letter-spacing:.03em}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
@@ -3135,7 +3136,7 @@ def footer_html():
         <a class="footer-paypal-button" href="{html.escape(paypal_url, quote=True)}" target="_blank" rel="noopener noreferrer">
           <span class="footer-paypal-icon"><i class="fa-brands fa-paypal"></i></span>
           <span class="footer-paypal-copy">
-            <span class="footer-paypal-eyebrow">Support FUJI VPN</span>
+            <span class="footer-paypal-eyebrow">Support Dev</span>
             <span class="footer-paypal-label">{html.escape(PAYPAL_DONATION_LABEL)}</span>
           </span>
         </a>"""
@@ -3162,11 +3163,13 @@ def footer_html():
           <span class="footer-badge"><i class="fa-solid fa-bolt"></i> Fast Tools</span>
           <span class="footer-badge"><i class="fa-solid fa-shield-halved"></i> Panel Access</span>
         </div>
-        <a class="footer-referral" href="https://www.digitalocean.com/?refcode=197466ae9d8c&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge" target="_blank" rel="noopener noreferrer">
-          <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%201.svg" alt="DigitalOcean Referral Badge" loading="lazy">
-          <span class="footer-referral-title">Digital Ocean Free Credit</span>
-        </a>
-        {paypal_button}
+        <div class="footer-support-row">
+          <a class="footer-referral" href="https://www.digitalocean.com/?refcode=197466ae9d8c&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge" target="_blank" rel="noopener noreferrer">
+            <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%201.svg" alt="DigitalOcean Referral Badge" loading="lazy">
+            <span class="footer-referral-title">Digital Ocean Free Credit</span>
+          </a>
+          {paypal_button}
+        </div>
       </div>
       <div class="footer-column">
         <div class="footer-heading">Explore</div>
