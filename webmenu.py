@@ -3261,7 +3261,7 @@ def build_service_cards():
 <div class="create-cell">
   <a href="/{service}" {anchor_attr}>
     <button class="create-btn" {button_attr} style="{style_attr}">
-      <div style="display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text-primary);"><img src="{icon}" style="height:1.1em;"> CREATE {label}</div>
+      <div style="display:flex;align-items:center;gap:10px;font-weight:700;color:#fff;"><img src="{icon}" style="height:1.1em;"> CREATE {label}</div>
       <div><span style="background:var(--primary-color);padding:4px 8px;border-radius:999px;font-weight:700;color:#fff;border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink);">Today {service_created_today}/{daily_limit}</span></div>
     </button>
   </a>
