@@ -41,7 +41,16 @@ README_FILE = Path.cwd() / "README.md"
 FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 
-CREATE_EXPIRY_DEFAULTS = {"ssh": 5, "vless": 3, "hysteria": 5, "wireguard": 2, "openvpn": 3}
+CREATE_EXPIRY_DEFAULTS = {
+    "ssh": 5,
+    "vless": 3,
+    "vmess": 3,
+    "trojan": 3,
+    "shadowsocks": 3,
+    "hysteria": 5,
+    "wireguard": 2,
+    "openvpn": 3,
+}
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
@@ -69,6 +78,9 @@ except Exception:
 SERVICE_META = [
     ("ssh", "SSH", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-ssh.png"),
     ("vless", "VLESS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-v2ray.png"),
+    ("vmess", "VMESS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-v2ray.png"),
+    ("trojan", "TROJAN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_trojan.png"),
+    ("shadowsocks", "SHADOWSOCKS", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon_shadowsocks.png"),
     ("hysteria", "HYSTERIA", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-hysteria.png"),
     ("wireguard", "WIREGUARD", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-wireguard.png"),
     ("openvpn", "OPENVPN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-openvpn.png"),
@@ -1964,7 +1976,7 @@ def render_admin_account_manager(force=False):
 <div data-admin-account-manager-root style="margin-top:1.2rem;">
   <div class="link-box">
     <div style="font-weight:700;margin-bottom:.45rem;">Account Manager</div>
-    <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, Hysteria, WireGuard, and OpenVPN accounts.</div>
+    <div style="color:var(--text-secondary);">Connect at least one backend to list and manage SSH, VLESS, VMess, Trojan, Shadowsocks, Hysteria, WireGuard, and OpenVPN accounts.</div>
   </div>
 </div>"""
     protocol_options = ['<option value="all" selected>All</option>']
@@ -3520,7 +3532,7 @@ def render_service_form(service, error=None, values=None):
     if error:
         error_html = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
     password_group = ""
-    if service not in {"vless", "wireguard"}:
+    if service not in {"vless", "vmess", "wireguard"}:
         password_group = f"""
       <div class="form-group">
         <label for="{service}-password" class="form-label"><i class="fa-solid fa-key"></i> Password</label>
@@ -3823,6 +3835,13 @@ def render_service_result(service, result):
         hysteria_link_html = render_copy_value(raw_hysteria_link, "Not available")
         legacy_hysteria_link_html = render_copy_value(raw_hysteria_legacy_link, "Not available")
         copy_script_html = field_copy_script
+    if service in {"vless", "vmess", "trojan", "shadowsocks"}:
+        username_html = render_copy_value(raw_username, "N/A")
+        domain_html = render_copy_value(raw_domain or current_host(), "N/A")
+        if raw_password:
+            password_html = render_copy_value(raw_password, "N/A")
+            password_row_html = f"<div>Password:</div><div>{password_html}</div>"
+        copy_script_html = field_copy_script
     content = f"""
 <div class="container"><div class="neo-box">
   <div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>Success! Your {label} account has been created.</div></div>
@@ -3878,6 +3897,44 @@ def render_service_result(service, result):
         content += f"""
   <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS TLS</div><div>{tls_link_html}</div></div>
   <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS Non-TLS</div><div>{nontls_link_html}</div></div>
+  {field_copy_script}"""
+    elif service == "vmess":
+        raw_tls_link = str(result.get("tls_link", "")).strip()
+        raw_nontls_link = str(result.get("nontls_link", "")).strip()
+        vmess_sni = str(result.get("sni", raw_domain)).strip() or raw_domain
+        tls_link_html = render_copy_value(raw_tls_link, "Not available")
+        nontls_link_html = render_copy_value(raw_nontls_link, "Not available")
+        vmess_sni_html = render_copy_value(vmess_sni, "N/A")
+        content += f"""
+  <div class="info-grid"><div>SNI:</div><div>{vmess_sni_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VMess WS TLS</div><div>{tls_link_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VMess WS Non-TLS</div><div>{nontls_link_html}</div></div>
+  {field_copy_script}"""
+    elif service == "trojan":
+        raw_tls_link = str(result.get("tls_link", "")).strip()
+        raw_nontls_link = str(result.get("nontls_link", "")).strip()
+        trojan_sni = str(result.get("sni", raw_domain)).strip() or raw_domain
+        tls_link_html = render_copy_value(raw_tls_link, "Not available")
+        nontls_link_html = render_copy_value(raw_nontls_link, "Not available")
+        trojan_sni_html = render_copy_value(trojan_sni, "N/A")
+        content += f"""
+  <div class="info-grid"><div>SNI:</div><div>{trojan_sni_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Trojan WS TLS</div><div>{tls_link_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Trojan WS Non-TLS</div><div>{nontls_link_html}</div></div>
+  {field_copy_script}"""
+    elif service == "shadowsocks":
+        raw_tls_link = str(result.get("tls_link", "")).strip()
+        raw_nontls_link = str(result.get("nontls_link", "")).strip()
+        ss_method = str(result.get("method", "")).strip() or "chacha20-ietf-poly1305"
+        ss_sni = str(result.get("sni", raw_domain)).strip() or raw_domain
+        method_html = render_copy_value(ss_method, "N/A")
+        ss_sni_html = render_copy_value(ss_sni, "N/A")
+        tls_link_html = render_copy_value(raw_tls_link, "Not available")
+        nontls_link_html = render_copy_value(raw_nontls_link, "Not available")
+        content += f"""
+  <div class="info-grid"><div>Method:</div><div>{method_html}</div><div>SNI:</div><div>{ss_sni_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Shadowsocks WS TLS</div><div>{tls_link_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Shadowsocks WS Non-TLS</div><div>{nontls_link_html}</div></div>
   {field_copy_script}"""
     elif service == "hysteria":
         content += f"""
@@ -4938,6 +4995,10 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     elif error:
         banner = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
     expiry_json = json.dumps(expiry).replace("</", "<\\/")
+    expiry_options_html = "".join(
+        f'<option value="{html.escape(service, quote=True)}">{html.escape(label.title() if label.isupper() else label)}</option>'
+        for service, label, _icon in SERVICE_META
+    )
     return render_page("Admin", f"""
 <div class="container" style="max-width:1120px;">
   <div class="neo-box">{banner}
@@ -4949,7 +5010,7 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     {admin_online_breakdown_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select"><option value="ssh">SSH</option><option value="vless">VLESS</option><option value="hysteria">Hysteria</option><option value="wireguard">WireGuard</option><option value="openvpn">OpenVPN</option></select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select">{expiry_options_html}</select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
     </div>
     {account_manager_html}
     {bypass_editor_html}
@@ -5229,7 +5290,7 @@ def submit_service_request(service):
             values=values,
         )
     payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
-    if service not in {"vless", "wireguard"}:
+    if service not in {"vless", "vmess", "wireguard"}:
         payload["password"] = values.get("password", "")
     if service == "vless":
         bypass_option_id = values.get("bypass_option", "").strip()
@@ -5274,6 +5335,16 @@ def vless_create():
     return submit_service_request("vless")
 
 
+@app.get("/vmess")
+def vmess_page():
+    return render_service_form("vmess")
+
+
+@app.post("/vmess")
+def vmess_create():
+    return submit_service_request("vmess")
+
+
 @app.get("/hysteria")
 def hysteria_page():
     return render_service_form("hysteria")
@@ -5282,6 +5353,26 @@ def hysteria_page():
 @app.post("/hysteria")
 def hysteria_create():
     return submit_service_request("hysteria")
+
+
+@app.get("/trojan")
+def trojan_page():
+    return render_service_form("trojan")
+
+
+@app.post("/trojan")
+def trojan_create():
+    return submit_service_request("trojan")
+
+
+@app.get("/shadowsocks")
+def shadowsocks_page():
+    return render_service_form("shadowsocks")
+
+
+@app.post("/shadowsocks")
+def shadowsocks_create():
+    return submit_service_request("shadowsocks")
 
 
 @app.get("/wireguard")
