@@ -3531,6 +3531,15 @@ def render_service_form(service, error=None, values=None):
     error_html = ""
     if error:
         error_html = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
+    username_group = ""
+    if service not in {"trojan", "shadowsocks"}:
+        username_group = f"""
+      <div class="form-group">
+        <label for="{service}-username" class="form-label"><i class="fa-solid fa-user"></i> Username</label>
+        <div class="form-input-container">
+          <input name="username" id="{service}-username" type="text" placeholder="Enter username" required pattern="[a-zA-Z0-9_]+" maxlength="20" value="{username_value}">
+        </div>
+      </div>"""
     password_group = ""
     if service not in {"vless", "vmess", "wireguard"}:
         password_group = f"""
@@ -3590,12 +3599,7 @@ def render_service_form(service, error=None, values=None):
   {current_backend_note}
   {error_html}
   <form method="POST" action="/{service}">
-    <div class="form-group">
-      <label for="{service}-username" class="form-label"><i class="fa-solid fa-user"></i> Username</label>
-      <div class="form-input-container">
-        <input name="username" id="{service}-username" type="text" placeholder="Enter username" required pattern="[a-zA-Z0-9_]+" maxlength="20" value="{username_value}">
-      </div>
-    </div>
+    {username_group}
     {password_group}
     {extra_group}
     {security_html}
@@ -3669,6 +3673,7 @@ def render_service_result(service, result):
     password_html = password
     domain_html = domain
     password_row_html = f"<div>Password:</div><div>{password_html}</div>" if raw_password else ""
+    show_username_row = service not in {"trojan", "shadowsocks"}
     field_copy_script = """
   <script>
   function copyResultField(button) {
@@ -3842,13 +3847,14 @@ def render_service_result(service, result):
             password_html = render_copy_value(raw_password, "N/A")
             password_row_html = f"<div>Password:</div><div>{password_html}</div>"
         copy_script_html = field_copy_script
+    identity_row_html = f"<div>Username:</div><div>{username_html}</div>" if show_username_row else ""
     content = f"""
 <div class="container"><div class="neo-box">
   <div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>Success! Your {label} account has been created.</div></div>
   <div class="info-grid">
     {"<div>Server:</div><div>" + backend_name + "</div>" if current_backend else ""}
     <div>Service:</div><div>{html.escape(label)}</div>
-    <div>Username:</div><div>{username_html}</div>
+    {identity_row_html}
     {password_row_html}
     <div>Domain:</div><div>{domain_html}</div>
     <div>Expires:</div><div>{html.escape(expiry)}</div>
@@ -5289,7 +5295,9 @@ def submit_service_request(service):
             error=f"Daily {service_label(service)} account creation limit reached for {backend_name} today. It resets at {DAILY_RESET_TIME_LABEL}.",
             values=values,
         )
-    payload = {"username": values.get("username", "").strip(), "days": get_create_account_expiry(service)}
+    payload = {"days": get_create_account_expiry(service)}
+    if service not in {"trojan", "shadowsocks"}:
+        payload["username"] = values.get("username", "").strip()
     if service not in {"vless", "vmess", "wireguard"}:
         payload["password"] = values.get("password", "")
     if service == "vless":
