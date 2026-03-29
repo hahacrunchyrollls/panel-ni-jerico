@@ -2911,16 +2911,16 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-copy{color:rgba(255,241,245,.88);font-weight:700;max-width:560px;}
 .footer-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem;}
 .footer-badge{display:inline-flex;align-items:center;gap:8px;padding:.45rem .76rem;border-radius:999px;background:transparent;border:1px solid rgba(255,255,255,.16);color:#fff;font-size:.82rem;font-weight:800;}
-.footer-support-row{display:grid;grid-template-columns:minmax(0,220px) minmax(0,280px);gap:14px;align-items:stretch;justify-content:flex-start;margin-top:1rem;max-width:540px;}
-.footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.5rem;margin-top:0;padding:.65rem .8rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:none;min-width:0;box-sizing:border-box;text-decoration:none;}
-.footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.06em;color:#fff;line-height:1;}
-.footer-referral img{display:block;width:100%;height:auto;max-width:170px;flex:none;}
-.footer-paypal-button{display:inline-flex;align-items:center;gap:12px;margin-top:0;padding:.9rem 1rem;border-radius:18px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:none;min-width:0;box-sizing:border-box;transition:var(--transition);}
+.footer-support-row{display:grid;grid-template-columns:minmax(0,230px) minmax(0,250px);gap:12px;align-items:stretch;justify-content:flex-start;margin-top:1rem;max-width:504px;}
+.footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:.35rem;margin-top:0;padding:.52rem .68rem;border-radius:16px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:none;min-width:0;box-sizing:border-box;text-decoration:none;}
+.footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:.86rem;letter-spacing:.05em;color:#fff;line-height:.94;}
+.footer-referral img{display:block;width:100%;height:auto;max-width:156px;flex:none;}
+.footer-paypal-button{display:inline-flex;align-items:center;gap:10px;margin-top:0;padding:.62rem .78rem;border-radius:16px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:none;min-width:0;box-sizing:border-box;transition:var(--transition);}
 .footer-paypal-button:hover,.footer-paypal-button:focus{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(27,12,0,.25);outline:none;color:#4a0a14;}
-.footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:40px;width:40px;border-radius:14px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:1.2rem;flex:none;}
-.footer-paypal-copy{display:flex;flex-direction:column;gap:2px;min-width:0;}
-.footer-paypal-eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(74,10,20,.72);}
-.footer-paypal-label{font-family:'Bangers','Comic Neue',cursive;font-size:1.1rem;letter-spacing:.05em;line-height:1;color:#4a0a14;}
+.footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:34px;width:34px;border-radius:12px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:1rem;flex:none;}
+.footer-paypal-copy{display:flex;flex-direction:column;gap:0;min-width:0;}
+.footer-paypal-eyebrow{font-size:.62rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:rgba(74,10,20,.72);}
+.footer-paypal-label{font-family:'Bangers','Comic Neue',cursive;font-size:.94rem;letter-spacing:.04em;line-height:.92;color:#4a0a14;}
 .footer-column{display:flex;flex-direction:column;gap:.9rem;min-width:0;position:relative;z-index:1;}
 .footer-heading{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.08em;color:#ffd8df;}
 .footer-link-list{display:flex;flex-direction:column;gap:.62rem;}
