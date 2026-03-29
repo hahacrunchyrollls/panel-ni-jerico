@@ -2,6 +2,7 @@ import base64
 import copy
 import hashlib
 import html
+import ipaddress
 import json
 import os
 import re
@@ -55,6 +56,8 @@ ADMIN_ACCOUNT_GROUPS_CACHE_TTL = 10
 PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 ADS_ENABLED = str(os.environ.get("ENABLE_ADS", "")).strip().lower() in {"1", "true", "yes", "on"}
+PAYPAL_DONATION_URL = str(os.environ.get("PAYPAL_DONATION_URL") or os.environ.get("PAYPAL_ME_URL") or "").strip()
+PAYPAL_DONATION_LABEL = str(os.environ.get("PAYPAL_DONATION_LABEL", "Donate via PayPal")).strip() or "Donate via PayPal"
 DAILY_RESET_TIME_LABEL = "12:00 AM PH time"
 TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 TURNSTILE_TIMEOUT_SECONDS = 8
@@ -69,6 +72,13 @@ SERVICE_META = [
     ("hysteria", "HYSTERIA", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-hysteria.png"),
     ("wireguard", "WIREGUARD", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-wireguard.png"),
     ("openvpn", "OPENVPN", "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/icon-openvpn.png"),
+]
+PORT_CHECKER_PRESETS = [
+    ("custom", "Custom Ports", []),
+    ("server", "Server Ports", [21, 22, 23, 25, 53, 80, 110, 137, 138, 139, 143, 443, 445, 548, 587, 993, 995, 1433, 1701, 1723, 3306, 5432, 8008, 8443]),
+    ("game", "Game Ports", [666, 2302, 3453, 3724, 4000, 5154, 6112, 6113, 6114, 6115, 6116, 6117, 6118, 6119, 7777, 10093, 10094, 12203, 14567, 25565, 26000, 27015, 27910, 28000, 50000]),
+    ("application", "Application Ports", [515, 631, 3282, 3389, 5190, 5050, 4443, 1863, 6891, 1503, 5631, 5632, 5900, 6667]),
+    ("p2p", "P2P Ports", [119, 375, 425, 1214, 412, 1412, 2412, 4661, 4662, 4665, 5500, 6346, 6881, 6882, 6883, 6884, 6885, 6886, 6887, 6888, 6889]),
 ]
 STATUS_SERVICE_ORDER = [
     "SSH",
@@ -2826,10 +2836,28 @@ form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bot
 .navbar-nav{display:flex;align-items:center;gap:10px;margin-left:auto;}
 .nav-link{color:var(--text-secondary);text-decoration:none;font-weight:700;padding:8px 16px;border-radius:14px;border:2px solid transparent;transition:var(--transition);font-size:.98rem;background:rgba(124,16,39,.05);}
 .nav-link:hover,.nav-link.active{color:#fff;background:var(--primary-color);border-color:var(--ink);}
+.nav-dropdown{position:relative;}
+.nav-dropdown-toggle{display:inline-flex;align-items:center;gap:8px;background:rgba(124,16,39,.05);color:var(--text-secondary);border:2px solid transparent;border-radius:14px;padding:8px 16px;box-shadow:none;font-family:'Comic Neue','Trebuchet MS',sans-serif;font-size:.98rem;font-weight:700;letter-spacing:0;text-transform:none;}
+.nav-dropdown-toggle span{display:inline-flex;align-items:center;gap:8px;}
+button.nav-dropdown-toggle:hover,button.nav-dropdown-toggle:focus,button.nav-dropdown-toggle.active{transform:none;background:var(--primary-color);color:#fff;border-color:var(--ink);outline:none;}
+.nav-dropdown-caret{font-size:.82rem;transition:transform .18s ease;}
+.nav-dropdown.is-open .nav-dropdown-caret{transform:rotate(180deg);}
+.nav-dropdown-menu{display:none;position:absolute;top:calc(100% + 8px);right:0;min-width:240px;background:var(--surface);border:3px solid var(--card-border);border-radius:16px;box-shadow:8px 8px 0 rgba(93,9,25,.22);padding:8px;z-index:1000;flex-direction:column;gap:6px;}
+.nav-dropdown.is-open .nav-dropdown-menu{display:flex;}
+.nav-dropdown-link{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text-primary);padding:10px 12px;border-radius:10px;font-weight:700;background:transparent;transition:var(--transition);}
+.nav-dropdown-link:hover,.nav-dropdown-link:focus{background:var(--primary-color);color:#fff;outline:none;transform:translateX(3px);}
 .burger-btn{display:none;background:var(--surface);border:3px solid var(--card-border);color:var(--primary-color);padding:0;border-radius:12px;height:46px;width:46px;box-shadow:4px 4px 0 rgba(93,9,25,.22);}
 .mobile-menu{display:none;position:absolute;top:calc(100% + 8px);right:12px;min-width:220px;max-width:92vw;background:var(--surface);border:3px solid var(--card-border);border-radius:16px;box-shadow:8px 8px 0 rgba(93,9,25,.22);padding:8px;z-index:1000;flex-direction:column;gap:6px;}
 .mobile-menu a{display:block;text-decoration:none;color:var(--text-primary);padding:10px 12px;border-radius:10px;font-weight:700;}
 .mobile-menu a:hover{background:var(--primary-color);color:#fff;}
+.mobile-menu-toggle{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;background:transparent;border:0;box-shadow:none;padding:10px 12px;border-radius:10px;color:var(--text-primary);font-weight:700;font-size:1rem;font-family:'Comic Neue','Trebuchet MS',sans-serif;letter-spacing:0;text-transform:none;}
+.mobile-menu-toggle span{display:inline-flex;align-items:center;gap:10px;}
+button.mobile-menu-toggle:hover,button.mobile-menu-toggle:focus,button.mobile-menu-toggle.active{transform:none;background:var(--primary-color);color:#fff;outline:none;border-color:transparent;}
+.mobile-menu-toggle .mobile-menu-caret{font-size:.82rem;transition:transform .18s ease;}
+button.mobile-menu-toggle.is-open .mobile-menu-caret{transform:rotate(180deg);}
+.mobile-submenu{display:none;flex-direction:column;gap:6px;padding-left:12px;}
+.mobile-submenu.is-open{display:flex;}
+.mobile-submenu a{background:rgba(124,16,39,.05);}
 .status-label{color:var(--text-muted);font-size:.92rem;font-weight:700;display:flex;align-items:center;gap:6px;}.status-value{font-family:'Bangers','Comic Neue',cursive;font-size:1.35rem;letter-spacing:.04em;font-weight:700}
 .status-subtitle{font-family:'Bangers','Comic Neue',cursive;font-size:1.15rem;font-weight:700;letter-spacing:.05em;margin:1.2rem 0 .8rem 0;color:var(--primary-color);display:flex;align-items:center;gap:8px;}
 .stats-container{display:flex;justify-content:center;gap:1rem;margin:1.5rem 0;flex-wrap:wrap;}
@@ -2886,6 +2914,12 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;gap:.5rem;margin-top:1rem;padding:.65rem .8rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:220px;box-sizing:border-box;text-decoration:none;}
 .footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.06em;color:#fff;line-height:1;}
 .footer-referral img{display:block;width:100%;height:auto;max-width:170px;flex:none;}
+.footer-paypal-button{display:inline-flex;align-items:center;gap:12px;margin-top:1rem;padding:.9rem 1rem;border-radius:18px;background:linear-gradient(135deg,#ffd166 0%,#ffb347 100%);border:2px solid rgba(255,255,255,.28);box-shadow:4px 4px 0 rgba(27,12,0,.25);text-decoration:none;color:#4a0a14;max-width:280px;box-sizing:border-box;transition:var(--transition);}
+.footer-paypal-button:hover,.footer-paypal-button:focus{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(27,12,0,.25);outline:none;color:#4a0a14;}
+.footer-paypal-icon{display:inline-flex;align-items:center;justify-content:center;height:40px;width:40px;border-radius:14px;background:rgba(255,255,255,.55);border:2px solid rgba(74,10,20,.12);font-size:1.2rem;flex:none;}
+.footer-paypal-copy{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.footer-paypal-eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.12em;text-transform:uppercase;color:rgba(74,10,20,.72);}
+.footer-paypal-label{font-family:'Bangers','Comic Neue',cursive;font-size:1.1rem;letter-spacing:.05em;line-height:1;color:#4a0a14;}
 .footer-column{display:flex;flex-direction:column;gap:.9rem;min-width:0;position:relative;z-index:1;}
 .footer-heading{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.08em;color:#ffd8df;}
 .footer-link-list{display:flex;flex-direction:column;gap:.62rem;}
@@ -2911,7 +2945,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 @media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
 @media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.45rem .5rem;max-width:180px;gap:.45rem;align-items:flex-start}.footer-referral-title{font-size:.9rem}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.45rem .5rem;max-width:180px;gap:.45rem;align-items:flex-start}.footer-referral-title{font-size:.9rem}.footer-referral img{max-width:150px}.footer-paypal-button{margin-top:.75rem;max-width:100%;width:100%;padding:.8rem .85rem;gap:10px}.footer-paypal-icon{height:36px;width:36px;border-radius:12px}.footer-paypal-label{font-size:1rem}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
@@ -2951,7 +2985,70 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
  </main>
 {{ footer|safe }}
 <script>
-document.addEventListener('DOMContentLoaded',function(){const n=v=>{if(!v||v==='/')return '/';return v.replace(/\/+$/,'')||'/';};const p=n(window.location.pathname);document.querySelectorAll('.nav-link').forEach(a=>{const h=n(a.getAttribute('href'));if(p===h||(p==='/'&&h==='/main'))a.classList.add('active');});const b=document.getElementById('navbar-burger');const m=document.getElementById('mobile-menu');if(b&&m){b.addEventListener('click',function(e){e.stopPropagation();const open=m.style.display==='flex';m.style.display=open?'none':'flex';});document.addEventListener('click',function(e){if(!m.contains(e.target)&&!b.contains(e.target))m.style.display='none';});}});
+document.addEventListener('DOMContentLoaded',function(){
+  const normalizePath=v=>{if(!v||v==='/')return '/';return v.replace(/\/+$/,'')||'/';};
+  const currentPath=normalizePath(window.location.pathname);
+  document.querySelectorAll('.nav-link[href]').forEach(a=>{
+    const href=normalizePath(a.getAttribute('href'));
+    if(currentPath===href||(currentPath==='/'&&href==='/main'))a.classList.add('active');
+  });
+  const desktopToolsDropdown=document.getElementById('navbar-tools-dropdown');
+  const desktopToolsToggle=document.getElementById('navbar-tools-toggle');
+  const desktopToolsLinks=Array.from(document.querySelectorAll('#navbar-tools-menu a'));
+  const mobileToolsToggle=document.getElementById('mobile-tools-toggle');
+  const mobileToolsMenu=document.getElementById('mobile-tools-menu');
+  const toolPaths=desktopToolsLinks.map(a=>normalizePath(a.getAttribute('href'))).filter(Boolean);
+  const toolsActive=toolPaths.some(href=>currentPath===href||(currentPath==='/'&&href==='/main'));
+  function closeDesktopTools(){
+    if(!desktopToolsDropdown||!desktopToolsToggle)return;
+    desktopToolsDropdown.classList.remove('is-open');
+    desktopToolsToggle.setAttribute('aria-expanded','false');
+  }
+  function closeMobileTools(){
+    if(!mobileToolsToggle||!mobileToolsMenu)return;
+    mobileToolsToggle.classList.remove('is-open');
+    mobileToolsMenu.classList.remove('is-open');
+    mobileToolsToggle.setAttribute('aria-expanded','false');
+  }
+  if(toolsActive){
+    if(desktopToolsToggle)desktopToolsToggle.classList.add('active');
+    if(mobileToolsToggle)mobileToolsToggle.classList.add('active');
+  }
+  if(desktopToolsDropdown&&desktopToolsToggle){
+    desktopToolsToggle.addEventListener('click',function(e){
+      e.stopPropagation();
+      const open=desktopToolsDropdown.classList.toggle('is-open');
+      desktopToolsToggle.setAttribute('aria-expanded',open?'true':'false');
+    });
+  }
+  if(mobileToolsToggle&&mobileToolsMenu){
+    mobileToolsToggle.addEventListener('click',function(e){
+      e.stopPropagation();
+      const open=mobileToolsMenu.classList.toggle('is-open');
+      mobileToolsToggle.classList.toggle('is-open',open);
+      mobileToolsToggle.setAttribute('aria-expanded',open?'true':'false');
+    });
+  }
+  const burgerButton=document.getElementById('navbar-burger');
+  const mobileMenu=document.getElementById('mobile-menu');
+  if(burgerButton&&mobileMenu){
+    burgerButton.addEventListener('click',function(e){
+      e.stopPropagation();
+      const open=mobileMenu.style.display==='flex';
+      mobileMenu.style.display=open?'none':'flex';
+      if(open)closeMobileTools();
+    });
+  }
+  document.addEventListener('click',function(e){
+    if(desktopToolsDropdown&&desktopToolsToggle&&!desktopToolsDropdown.contains(e.target)&&!desktopToolsToggle.contains(e.target)){
+      closeDesktopTools();
+    }
+    if(mobileMenu&&burgerButton&&!mobileMenu.contains(e.target)&&!burgerButton.contains(e.target)){
+      mobileMenu.style.display='none';
+      closeMobileTools();
+    }
+  });
+});
 </script>
 </body>
 </html>
@@ -2964,8 +3061,17 @@ def navbar_html():
     guide_link = '<a href="/guide" class="nav-link"><i class="fa-solid fa-book-open"></i> Guide</a>'
     mobile_guide = '<a href="/guide"><i class="fa-solid fa-book-open"></i> Guide</a>'
     show_status_link = has_explicit_backend_selection()
-    status_link = '<a href="/status" class="nav-link"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
-    mobile_status_link = '<a href="/status"><i class="fa-solid fa-server"></i> Status</a>' if show_status_link else ""
+    desktop_tools_links = []
+    mobile_tools_links = []
+    if show_status_link:
+        desktop_tools_links.append('<a href="/status" class="nav-dropdown-link"><i class="fa-solid fa-server"></i> Server Status</a>')
+        mobile_tools_links.append('<a href="/status"><i class="fa-solid fa-server"></i> Server Status</a>')
+    desktop_tools_links.append('<a href="/hostname-to-ip" class="nav-dropdown-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>')
+    desktop_tools_links.append('<a href="/ip-lookup" class="nav-dropdown-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>')
+    desktop_tools_links.append('<a href="/port-checker" class="nav-dropdown-link"><i class="fa-solid fa-network-wired"></i> Port Checker</a>')
+    mobile_tools_links.append('<a href="/hostname-to-ip"><i class="fa-solid fa-globe"></i> Hostname to IP</a>')
+    mobile_tools_links.append('<a href="/ip-lookup"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>')
+    mobile_tools_links.append('<a href="/port-checker"><i class="fa-solid fa-network-wired"></i> Port Checker</a>')
     visitor_ip = html.escape(get_request_ip())
     return f"""
 <nav class="navbar">
@@ -2976,25 +3082,45 @@ def navbar_html():
   </a>
   <div class="navbar-nav">
     <a href="/main" class="nav-link"><i class="fa-solid fa-house"></i> Home</a>
-    {status_link}
     {guide_link}
-    <a href="/hostname-to-ip" class="nav-link"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
-    <a href="/ip-lookup" class="nav-link"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
+    <div class="nav-dropdown" id="navbar-tools-dropdown">
+      <button class="nav-dropdown-toggle" id="navbar-tools-toggle" type="button" aria-expanded="false">
+        <span><i class="fa-solid fa-screwdriver-wrench"></i> Tools</span>
+        <i class="fa-solid fa-chevron-down nav-dropdown-caret" aria-hidden="true"></i>
+      </button>
+      <div class="nav-dropdown-menu" id="navbar-tools-menu">
+        {''.join(desktop_tools_links)}
+      </div>
+    </div>
     {announcement_link}
-    <a href="/donate" class="nav-link"><i class="fa-solid fa-donate"></i> Donate</a>
   </div>
   <button class="burger-btn" id="navbar-burger" type="button"><i class="fa-solid fa-bars"></i></button>
   <div class="mobile-menu" id="mobile-menu">
     <a href="/main"><i class="fa-solid fa-house"></i> Home</a>
-    {mobile_status_link}
     {mobile_guide}
-    <a href="/hostname-to-ip"><i class="fa-solid fa-globe"></i> Hostname to IP</a>
-    <a href="/ip-lookup"><i class="fa-solid fa-location-dot"></i> IP Lookup</a>
+    <button class="mobile-menu-toggle" id="mobile-tools-toggle" type="button" aria-expanded="false">
+      <span><i class="fa-solid fa-screwdriver-wrench"></i> Tools</span>
+      <i class="fa-solid fa-chevron-down mobile-menu-caret" aria-hidden="true"></i>
+    </button>
+    <div class="mobile-submenu" id="mobile-tools-menu">
+      {''.join(mobile_tools_links)}
+    </div>
     {mobile_announcement}
-    <a href="/donate"><i class="fa-solid fa-donate"></i> Donate</a>
   </div>
 </nav>
 """
+
+
+def normalized_paypal_donation_url():
+    raw = PAYPAL_DONATION_URL.strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw.lstrip("/")
+    parsed = urllib.parse.urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return raw
 
 
 def footer_html():
@@ -3002,6 +3128,17 @@ def footer_html():
     year = html.escape(current_year_label())
     reset_time = html.escape(DAILY_RESET_TIME_LABEL)
     announcement_link = '<a href="/readme" class="footer-link"><i class="fa-solid fa-bullhorn"></i><span>Announcement</span></a>' if announcement_exists() else ""
+    paypal_url = normalized_paypal_donation_url()
+    paypal_button = ""
+    if paypal_url:
+        paypal_button = f"""
+        <a class="footer-paypal-button" href="{html.escape(paypal_url, quote=True)}" target="_blank" rel="noopener noreferrer">
+          <span class="footer-paypal-icon"><i class="fa-brands fa-paypal"></i></span>
+          <span class="footer-paypal-copy">
+            <span class="footer-paypal-eyebrow">Support FUJI VPN</span>
+            <span class="footer-paypal-label">{html.escape(PAYPAL_DONATION_LABEL)}</span>
+          </span>
+        </a>"""
     tools_tail_link = (
         '<a href="/status" class="footer-link"><i class="fa-solid fa-server"></i><span>Server Status</span></a>'
         if has_explicit_backend_selection()
@@ -3029,13 +3166,13 @@ def footer_html():
           <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%201.svg" alt="DigitalOcean Referral Badge" loading="lazy">
           <span class="footer-referral-title">Digital Ocean Free Credit</span>
         </a>
+        {paypal_button}
       </div>
       <div class="footer-column">
         <div class="footer-heading">Explore</div>
         <div class="footer-link-list">
           <a href="/main" class="footer-link"><i class="fa-solid fa-house"></i><span>Home</span></a>
           <a href="/guide" class="footer-link"><i class="fa-solid fa-book-open"></i><span>Guide</span></a>
-          <a href="/donate" class="footer-link"><i class="fa-solid fa-donate"></i><span>Donate</span></a>
           {announcement_link}
         </div>
       </div>
@@ -3044,6 +3181,7 @@ def footer_html():
         <div class="footer-link-list">
           <a href="/hostname-to-ip" class="footer-link"><i class="fa-solid fa-globe"></i><span>Hostname to IP</span></a>
           <a href="/ip-lookup" class="footer-link"><i class="fa-solid fa-location-dot"></i><span>IP Lookup</span></a>
+          <a href="/port-checker" class="footer-link"><i class="fa-solid fa-network-wired"></i><span>Port Checker</span></a>
           {tools_tail_link}
         </div>
       </div>
@@ -3853,18 +3991,286 @@ document.getElementById('ip-form').addEventListener('submit',function(e){e.preve
     return hostname_page, ip_page
 
 
-def render_donate():
-    return render_page(
-        "Donate",
-        """
-<div class="container"><div class="neo-box" style="max-width:720px;margin:0 auto;text-align:center;">
-  <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1rem;"><i class="fa-solid fa-donate" style="font-size:1.6em;color:var(--primary-color);"></i><h2 class="section-title" style="margin:0;">Gcash Donation</h2></div>
-  <div style="margin-top:.6rem;"><img src="https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/Donate.png" alt="Donate" style="max-width:100%;height:auto;border-radius:12px;border:1px solid var(--card-border);"></div>
-  <div style="margin-top:1rem;color:var(--text-secondary);">Thank you for supporting all donation will be appreciated.</div>
-  <a href="/main" style="display:block;margin-top:1.2rem;text-decoration:none;"><button style="width:100%;max-width:320px;margin:.8rem auto 0;display:block;"><i class="fa-solid fa-arrow-left"></i> Back to Main</button></a>
-</div></div>""",
+def port_checker_preset_map():
+    return {key: {"label": label, "ports": list(ports)} for key, label, ports in PORT_CHECKER_PRESETS}
+
+
+def render_port_checker_page():
+    preset_map = port_checker_preset_map()
+    option_html = "".join(
+        f'<option value="{html.escape(key)}">{"Custom Ports" if key == "custom" else html.escape(label)}</option>'
+        for key, label, _ports in PORT_CHECKER_PRESETS
+    )
+    preset_json = json.dumps(preset_map).replace("</", "<\\/")
+    default_custom_ports = ""
+    page = """
+<div class="container"><div class="neo-box" style="max-width:760px;margin:0 auto;text-align:center;">
+  <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;flex-wrap:wrap;"><i class="fa-solid fa-network-wired" style="font-size:1.8em;color:var(--accent-color);"></i><h2 class="section-title" style="margin:0;">Port Checker</h2></div>
+  <div style="color:var(--text-secondary);max-width:620px;margin:0 auto 1.3rem auto;">Enter a hostname or IP address, choose a preset list, and check which TCP ports respond.</div>
+  <form id="port-checker-form" method="POST" action="/port-checker" style="margin-bottom:1.4rem;">
+    <div class="form-group">
+      <label for="port-checker-target" class="form-label"><i class="fa-solid fa-server"></i> Hostname or IP</label>
+      <div class="form-input-container">
+        <input name="target" id="port-checker-target" type="text" placeholder="Enter hostname or IP" required maxlength="255">
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="port-checker-profile" class="form-label"><i class="fa-solid fa-list"></i> Port Group</label>
+      <div class="form-input-container">
+        <select name="profile" id="port-checker-profile">
+          __OPTION_HTML__
+        </select>
+      </div>
+    </div>
+    <div class="form-group" id="port-custom-wrap" style="display:none;">
+      <label for="port-custom-input" class="form-label"><i class="fa-solid fa-sliders"></i> Custom Ports</label>
+      <div class="form-input-container" style="max-width:620px;">
+        <input name="custom_ports" id="port-custom-input" type="text" placeholder="Enter ports like 21, 22, 80, 443 or 8000-8005" value="__DEFAULT_CUSTOM__">
+      </div>
+      <div style="margin-top:.45rem;color:var(--text-muted);font-size:.9rem;font-weight:700;">Supports comma-separated ports and ranges like <code>8000-8005</code>.</div>
+    </div>
+    <div class="link-box" id="port-profile-preview-wrap" style="max-width:620px;margin:0 auto 1.2rem auto;text-align:left;">
+      <div class="link-title"><i class="fa-solid fa-layer-group"></i> Selected Ports</div>
+      <div id="port-profile-preview" style="color:var(--text-secondary);font-weight:700;word-break:break-word;"></div>
+    </div>
+    <button type="submit" style="width:100%;max-width:400px;margin:0 auto;"><i class="fa-solid fa-network-wired"></i> Check Ports</button>
+  </form>
+  <div id="port-checker-result"></div>
+</div></div>
+<script>
+(function(){
+  const presetMap = __PRESET_JSON__;
+  const form = document.getElementById('port-checker-form');
+  const profileSelect = document.getElementById('port-checker-profile');
+  const customWrap = document.getElementById('port-custom-wrap');
+  const customInput = document.getElementById('port-custom-input');
+  const previewWrap = document.getElementById('port-profile-preview-wrap');
+  const preview = document.getElementById('port-profile-preview');
+  const resultDiv = document.getElementById('port-checker-result');
+  if(!form || !profileSelect || !customWrap || !customInput || !previewWrap || !preview || !resultDiv) return;
+  function syncProfile(){
+    const key = String(profileSelect.value || 'server');
+    const preset = presetMap[key] || presetMap.server || {ports: []};
+    const isCustom = key === 'custom';
+    customWrap.style.display = isCustom ? '' : 'none';
+    previewWrap.style.display = isCustom ? 'none' : '';
+    preview.textContent = isCustom
+      ? (customInput.value.trim() || 'Enter custom ports separated by commas.')
+      : ((preset.ports || []).join(', ') || 'No ports configured.');
+  }
+  profileSelect.addEventListener('change', syncProfile);
+  customInput.addEventListener('input', syncProfile);
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const body = 'target=' + encodeURIComponent((document.getElementById('port-checker-target').value || '').trim())
+      + '&profile=' + encodeURIComponent(profileSelect.value || 'server')
+      + '&custom_ports=' + encodeURIComponent(customInput.value || '');
+    resultDiv.innerHTML = '<div style="color:var(--text-muted);margin-top:1em;"><i class="fa-solid fa-spinner fa-spin"></i> Checking selected ports...</div>';
+    fetch('/port-checker', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: body
+    }).then(r => r.text()).then(html => {
+      resultDiv.innerHTML = html;
+    }).catch(() => {
+      resultDiv.innerHTML = '<div style="color:var(--error);margin-top:1em;">Error checking ports right now.</div>';
+    });
+  });
+  syncProfile();
+})();
+</script>"""
+    return (
+        page.replace("__OPTION_HTML__", option_html)
+        .replace("__PRESET_JSON__", preset_json)
+        .replace("__DEFAULT_CUSTOM__", html.escape(default_custom_ports, quote=True))
     )
 
+
+def parse_custom_port_list(raw_text):
+    normalized = re.sub(r"\s*-\s*", "-", str(raw_text or "").strip())
+    tokens = [token for token in re.split(r"[\s,]+", normalized) if token]
+    if not tokens:
+        raise ValueError("Please enter at least one custom port.")
+    ports = []
+    seen = set()
+    invalid = []
+    for token in tokens:
+        expanded_ports = []
+        if token.isdigit():
+            expanded_ports = [int(token)]
+        elif re.fullmatch(r"\d+-\d+", token):
+            start_text, end_text = token.split("-", 1)
+            start_port = int(start_text)
+            end_port = int(end_text)
+            if not (1 <= start_port <= 65535) or not (1 <= end_port <= 65535) or start_port > end_port:
+                invalid.append(token)
+                continue
+            expanded_ports = list(range(start_port, end_port + 1))
+        else:
+            invalid.append(token)
+            continue
+        for port in expanded_ports:
+            if not (1 <= port <= 65535):
+                invalid.append(token)
+                break
+            if port not in seen:
+                seen.add(port)
+                ports.append(port)
+                if len(ports) > 64:
+                    raise ValueError("Custom port list is limited to 64 ports.")
+    if invalid:
+        shown = ", ".join(invalid[:8])
+        suffix = "..." if len(invalid) > 8 else ""
+        raise ValueError(f"Invalid ports: {shown}{suffix}")
+    return ports
+
+
+def normalize_port_checker_target(raw_target):
+    text = str(raw_target or "").strip()
+    if not text:
+        return ""
+    bracketed_ipv6 = re.match(r"^\[([^\]]+)\](?::\d+)?(?:[/?#].*)?$", text)
+    if bracketed_ipv6:
+        return bracketed_ipv6.group(1).strip()
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        pass
+    if "://" in text:
+        parsed = urllib.parse.urlsplit(text)
+        if parsed.hostname:
+            return parsed.hostname.strip()
+    if any(marker in text for marker in ("/", "?", "#")):
+        parsed = urllib.parse.urlsplit("//" + text.lstrip("/"))
+        if parsed.hostname:
+            return parsed.hostname.strip()
+    if text.count(":") == 1:
+        host_part, port_part = text.rsplit(":", 1)
+        if host_part and port_part.isdigit():
+            return host_part.strip()
+    return text
+
+
+def resolve_port_checker_target(raw_target):
+    normalized_target = normalize_port_checker_target(raw_target)
+    if not normalized_target:
+        raise ValueError("Please enter a hostname or IP address.")
+    try:
+        addr_infos = socket.getaddrinfo(normalized_target, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except Exception as exc:
+        raise ValueError(f"Could not resolve target: {normalized_target}") from exc
+    endpoints = []
+    seen = set()
+    for family, _socktype, _proto, _canonname, sockaddr in addr_infos:
+        if family not in (socket.AF_INET, socket.AF_INET6):
+            continue
+        host = str(sockaddr[0]).strip()
+        if not host:
+            continue
+        dedupe_key = (family, host)
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        endpoints.append(
+            {
+                "family": family,
+                "family_label": "IPv6" if family == socket.AF_INET6 else "IPv4",
+                "host": host,
+            }
+        )
+    if not endpoints:
+        raise ValueError(f"Could not resolve target: {normalized_target}")
+    return normalized_target, endpoints
+
+
+def port_checker_sockaddr(endpoint, port):
+    if endpoint["family"] == socket.AF_INET6:
+        return (endpoint["host"], int(port), 0, 0)
+    return (endpoint["host"], int(port))
+
+
+def probe_port_checker_port(endpoints, port, timeout=0.9):
+    checked_port = int(port)
+    for endpoint in endpoints:
+        start = time.perf_counter()
+        sock = socket.socket(endpoint["family"], socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        try:
+            sock.connect(port_checker_sockaddr(endpoint, checked_port))
+            latency_ms = max(1, int((time.perf_counter() - start) * 1000))
+            return {
+                "port": checked_port,
+                "open": True,
+                "latency_ms": latency_ms,
+                "resolved_host": endpoint["host"],
+                "family_label": endpoint["family_label"],
+            }
+        except Exception:
+            continue
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    return {
+        "port": checked_port,
+        "open": False,
+        "latency_ms": None,
+        "resolved_host": "",
+        "family_label": "",
+    }
+
+
+def scan_port_checker_ports(endpoints, ports):
+    ordered_ports = list(dict.fromkeys(int(port) for port in ports))
+    if not ordered_ports:
+        return []
+    max_workers = max(1, min(24, len(ordered_ports)))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = list(executor.map(lambda port: probe_port_checker_port(endpoints, port), ordered_ports))
+    results.sort(key=lambda item: (not item["open"], item["port"]))
+    return results
+
+
+def render_port_checker_result(raw_target, normalized_target, endpoints, profile_label, ports, results, scan_elapsed_ms):
+    result_cards = []
+    for entry in results:
+        is_open = bool(entry.get("open"))
+        status_color = "var(--success)" if is_open else "var(--error)"
+        icon_class = "fa-solid fa-circle-check" if is_open else "fa-solid fa-circle-xmark"
+        status_label = "OPEN" if is_open else "CLOSED"
+        if is_open and entry.get("latency_ms"):
+            meta_text = (
+                f'Responded from {entry.get("resolved_host", "")} '
+                f'({entry.get("family_label", "")}) in {int(entry.get("latency_ms") or 0)} ms'
+            )
+        else:
+            meta_text = (
+                f'No TCP response across {len(endpoints)} resolved addresses'
+                if len(endpoints) > 1
+                else "No TCP response"
+            )
+        result_cards.append(
+            f"""
+<div class="service-item" style="padding:.95rem;">
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+    <div>
+      <div style="font-weight:800;">Port {int(entry.get("port", 0))}</div>
+      <div style="color:var(--text-muted);font-size:.84rem;">{html.escape(meta_text)}</div>
+    </div>
+    <div style="font-weight:800;color:{status_color};display:inline-flex;align-items:center;gap:8px;">
+      <i class="{icon_class}" style="color:{status_color};"></i>{status_label}
+    </div>
+  </div>
+</div>"""
+        )
+    return f"""
+<div style="margin-top:1em;">
+  <div style="color:var(--success);font-weight:700;"><i class="fa-solid fa-circle-check"></i> Input: <span style="color:var(--accent-color);word-break:break-word;">{html.escape(raw_target)}</span></div>
+  <div style="margin-top:.45em;color:var(--text-secondary);font-weight:700;">Target Host: <span style="color:var(--primary-color);word-break:break-word;">{html.escape(normalized_target)}</span></div>
+  <div style="margin-top:.8rem;color:var(--text-muted);font-size:.9rem;font-weight:700;">This checker tests TCP reachability for the selected ports.</div>
+  <div class="services-grid" style="margin-top:1rem;">{''.join(result_cards)}</div>
+</div>"""
 
 def render_legal_page(page_title, heading, icon_class, intro_html, sections_html):
     updated_label = html.escape(legal_last_updated_label())
@@ -4544,6 +4950,7 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
 
 
 hostname_page_html, ip_page_html = render_lookup_pages()
+port_checker_page_html = render_port_checker_page()
 
 
 @app.get("/site-icon.svg")
@@ -4712,9 +5119,42 @@ def ip_lookup_action():
 </div>"""
 
 
+@app.get("/port-checker")
+def port_checker_page():
+    return render_page("Port Checker", port_checker_page_html)
+
+
+@app.post("/port-checker")
+def port_checker_action():
+    target = (request.form.get("target") or "").strip()
+    if not target:
+        return '<div style="color:var(--error);margin-top:1em;">Please enter a hostname or IP address.</div>'
+    preset_map = port_checker_preset_map()
+    profile = (request.form.get("profile") or "server").strip().lower()
+    if profile not in preset_map:
+        profile = "server"
+    if profile == "custom":
+        try:
+            ports = parse_custom_port_list(request.form.get("custom_ports", ""))
+        except ValueError as exc:
+            return f'<div style="color:var(--error);margin-top:1em;"><i class="fa-solid fa-circle-xmark"></i> {html.escape(str(exc))}</div>'
+    else:
+        ports = list(preset_map[profile]["ports"])
+    try:
+        normalized_target, endpoints = resolve_port_checker_target(target)
+    except ValueError as exc:
+        return f'<div style="color:var(--error);margin-top:1em;"><i class="fa-solid fa-circle-xmark"></i> {html.escape(str(exc))}</div>'
+    scan_started = time.perf_counter()
+    results = scan_port_checker_ports(endpoints, ports)
+    scan_elapsed_ms = (time.perf_counter() - scan_started) * 1000
+    profile_label = preset_map[profile]["label"]
+    return render_port_checker_result(target, normalized_target, endpoints, profile_label, ports, results, scan_elapsed_ms)
+
+
 @app.get("/donate")
 def donate_page():
-    return render_donate()
+    paypal_url = normalized_paypal_donation_url()
+    return redirect(paypal_url or "/main", code=302)
 
 
 @app.get("/guide")
