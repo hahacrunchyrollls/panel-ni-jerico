@@ -3500,55 +3500,19 @@ def render_service_result(service, result):
     label = service_label(service)
     icon = service_icon(service)
     expiry = format_expiry(result.get("expires_at"))
-    username = html.escape(str(result.get("username", "")))
-    password = html.escape(str(result.get("password", "")))
-    domain = html.escape(str(result.get("domain", current_host())))
-    current_backend = selected_backend()
-    backend_name = html.escape(backend_display_label(current_backend)) if current_backend else ""
-    ssh_details_raw = ""
-    if service == "ssh":
-        for key in ("ssh_details", "server_info", "details", "output", "info", "message"):
-            value = result.get(key)
-            if isinstance(value, str) and value.strip():
-                ssh_details_raw = value
-                break
-        noisy_sources = [ssh_details_raw]
-        for key in ("ip", "domain", "nameserver", "public_key"):
-            value = result.get(key)
-            if isinstance(value, str) and value.strip():
-                noisy_sources.append(value)
-        combined_ssh_text = "\n".join(part for part in noisy_sources if part)
-        clean_ip = str(result.get("ip", "")).strip()
-        if not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", clean_ip):
-            clean_ip = extract_labeled_value(combined_ssh_text, ["IP"]) or extract_ipv4(combined_ssh_text) or backend_host(current_backend)
-        clean_domain = str(result.get("domain", "")).strip()
-        if not clean_domain or "PORTS INFORMATION" in clean_domain or "\x1b[" in clean_domain or len(clean_domain) > 120:
-            clean_domain = extract_labeled_value(combined_ssh_text, ["A"]) or clean_domain or current_host()
-        clean_nameserver = str(result.get("nameserver", "")).strip()
-        if not clean_nameserver or "PORTS INFORMATION" in clean_nameserver or "\x1b[" in clean_nameserver or len(clean_nameserver) > 180:
-            clean_nameserver = extract_labeled_value(combined_ssh_text, ["NS", "Nameserver"]) or "Not configured"
-        clean_public_key = str(result.get("public_key", "")).strip()
-        if not clean_public_key or "PORTS INFORMATION" in clean_public_key or "\x1b[" in clean_public_key or len(clean_public_key) > 200:
-            clean_public_key = extract_labeled_value(combined_ssh_text, ["Public Key"]) or "Not configured"
-        domain = html.escape(clean_domain)
-        nameserver_html = html.escape(clean_nameserver or "Not configured")
-        nameserver_copy_script = ""
-        if clean_nameserver and clean_nameserver != "Not configured":
-            nameserver_html = (
-                f'<button type="button" '
-                f'data-copy="{html.escape(clean_nameserver, quote=True)}" '
-                f'onclick="copySshNameserver(this)" '
-                f'style="display:inline-flex;align-items:center;gap:8px;padding:.55rem .75rem;'
-                f'border-radius:14px;border:2px dashed var(--card-border);background:rgba(255,255,255,.92);'
-                f'color:var(--primary-color);font-weight:700;box-shadow:none;font-family:\'Comic Neue\',\'Trebuchet MS\',sans-serif;'
-                f'letter-spacing:0;text-transform:none;max-width:100%;word-break:break-word;">'
-                f'<span>{html.escape(clean_nameserver)}</span>'
-                f'<i class="fa-regular fa-copy" aria-hidden="true"></i>'
-                f'</button>'
-            )
-            nameserver_copy_script = """
+    raw_username = str(result.get("username", "")).strip()
+    raw_password = str(result.get("password", "")).strip()
+    raw_domain = str(result.get("domain", current_host())).strip()
+    username = html.escape(raw_username)
+    password = html.escape(raw_password)
+    domain = html.escape(raw_domain)
+    username_html = username
+    password_html = password
+    domain_html = domain
+    password_row_html = f"<div>Password:</div><div>{password_html}</div>" if raw_password else ""
+    field_copy_script = """
   <script>
-  function copySshNameserver(button) {
+  function copyResultField(button) {
     if (!button) return;
     const value = button.getAttribute('data-copy') || '';
     if (!value) return;
@@ -3584,15 +3548,131 @@ def render_service_result(service, result):
     }
   }
   </script>"""
+    def render_copy_value(value, empty_text):
+        raw_value = str(value or "").strip()
+        display_value = raw_value or empty_text
+        if not raw_value or display_value == empty_text:
+            return html.escape(display_value)
+        return (
+            f'<button type="button" '
+            f'data-copy="{html.escape(raw_value, quote=True)}" '
+            f'onclick="copyResultField(this)" '
+            f'title="Copy {html.escape(display_value, quote=True)}" '
+            f'style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;'
+            f'width:100%;padding:.55rem .75rem;border-radius:14px;border:2px dashed var(--card-border);'
+            f'background:rgba(255,255,255,.92);color:var(--primary-color);font-weight:700;box-shadow:none;'
+            f'font-family:\'Comic Neue\',\'Trebuchet MS\',sans-serif;letter-spacing:0;text-transform:none;'
+            f'transform:none;text-align:left;line-height:1.35;">'
+            f'<span style="flex:1;min-width:0;overflow-wrap:anywhere;">{html.escape(display_value)}</span>'
+            f'<i class="fa-regular fa-copy" aria-hidden="true" style="flex:none;margin-top:2px;"></i>'
+            f'</button>'
+        )
+    def first_nonempty_value(*values):
+        for value in values:
+            cleaned = str(value or "").strip()
+            if cleaned and cleaned not in {"N/A", "<nil>", "None", "null"}:
+                return cleaned
+        return ""
+    def query_value_from_url(source, keys):
+        text = str(source or "").strip()
+        if not text:
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(text)
+            query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        except Exception:
+            return ""
+        for key in keys:
+            for item in query.get(key, []):
+                cleaned = str(item or "").strip()
+                if cleaned:
+                    return cleaned
+        return ""
+    def hostname_from_url(source):
+        text = str(source or "").strip()
+        if not text:
+            return ""
+        try:
+            return (urllib.parse.urlsplit(text).hostname or "").strip()
+        except Exception:
+            return ""
+    current_backend = selected_backend()
+    backend_name = html.escape(backend_display_label(current_backend)) if current_backend else ""
+    ssh_details_raw = ""
+    copy_script_html = ""
+    obfs_html = ""
+    hysteria_link_html = ""
+    legacy_hysteria_link_html = ""
+    raw_hysteria_link = ""
+    raw_hysteria_legacy_link = ""
+    if service == "ssh":
+        for key in ("ssh_details", "server_info", "details", "output", "info", "message"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                ssh_details_raw = value
+                break
+        noisy_sources = [ssh_details_raw]
+        for key in ("ip", "domain", "nameserver", "public_key"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                noisy_sources.append(value)
+        combined_ssh_text = "\n".join(part for part in noisy_sources if part)
+        clean_ip = str(result.get("ip", "")).strip()
+        if not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", clean_ip):
+            clean_ip = extract_labeled_value(combined_ssh_text, ["IP"]) or extract_ipv4(combined_ssh_text) or backend_host(current_backend)
+        clean_domain = str(result.get("domain", "")).strip()
+        if not clean_domain or "PORTS INFORMATION" in clean_domain or "\x1b[" in clean_domain or len(clean_domain) > 120:
+            clean_domain = extract_labeled_value(combined_ssh_text, ["A"]) or clean_domain or current_host()
+        clean_nameserver = str(result.get("nameserver", "")).strip()
+        if not clean_nameserver or "PORTS INFORMATION" in clean_nameserver or "\x1b[" in clean_nameserver or len(clean_nameserver) > 180:
+            clean_nameserver = extract_labeled_value(combined_ssh_text, ["NS", "Nameserver"]) or "Not configured"
+        clean_public_key = str(result.get("public_key", "")).strip()
+        if not clean_public_key or "PORTS INFORMATION" in clean_public_key or "\x1b[" in clean_public_key or len(clean_public_key) > 200:
+            clean_public_key = extract_labeled_value(combined_ssh_text, ["Public Key"]) or "Not configured"
+        domain = html.escape(clean_domain)
+        username_html = render_copy_value(raw_username, "N/A")
+        if raw_password:
+            password_html = render_copy_value(raw_password, "N/A")
+            password_row_html = f"<div>Password:</div><div>{password_html}</div>"
+        domain_html = render_copy_value(clean_domain or raw_domain or current_host(), "N/A")
+        ip_html = render_copy_value(clean_ip or "N/A", "N/A")
+        nameserver_html = render_copy_value(clean_nameserver or "Not configured", "Not configured")
+        public_key_html = render_copy_value(clean_public_key or "Not configured", "Not configured")
+        copy_script_html = field_copy_script
+    if service == "hysteria":
+        raw_hysteria_link = str(result.get("link", "")).strip()
+        raw_hysteria_legacy_link = str(result.get("legacy_link", "")).strip()
+        hysteria_detail_parts = []
+        for key in ("details", "output", "info", "message", "server_info", "obfs"):
+            value = result.get(key)
+            if isinstance(value, str) and value.strip():
+                hysteria_detail_parts.append(value)
+        hysteria_detail_text = "\n".join(hysteria_detail_parts)
+        obfs_value = first_nonempty_value(
+            result.get("obfs", ""),
+            query_value_from_url(raw_hysteria_link, ("obfs-password", "obfs_password", "obfsPassword", "obfsParam")),
+            query_value_from_url(raw_hysteria_legacy_link, ("obfsParam", "obfs-password", "obfs_password", "obfsPassword")),
+            extract_labeled_value(hysteria_detail_text, ["Obfs", "OBFS", "Obfs Password", "obfs-password", "obfsParam"]),
+        ) or "Not configured"
+        hysteria_domain = first_nonempty_value(raw_domain, hostname_from_url(raw_hysteria_link), current_host())
+        username_html = render_copy_value(raw_username, "N/A")
+        if raw_password:
+            password_html = render_copy_value(raw_password, "N/A")
+            password_row_html = f"<div>Password:</div><div>{password_html}</div>"
+        domain_html = render_copy_value(hysteria_domain, "N/A")
+        obfs_html = render_copy_value(obfs_value, "Not configured")
+        hysteria_link_html = render_copy_value(raw_hysteria_link, "Not available")
+        legacy_hysteria_link_html = render_copy_value(raw_hysteria_legacy_link, "Not available")
+        copy_script_html = field_copy_script
     content = f"""
 <div class="container"><div class="neo-box">
   <div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>Success! Your {label} account has been created.</div></div>
   <div class="info-grid">
     {"<div>Server:</div><div>" + backend_name + "</div>" if current_backend else ""}
     <div>Service:</div><div>{html.escape(label)}</div>
-    <div>Username:</div><div>{username}</div>
-    {"<div>Password:</div><div>" + password + "</div>" if result.get("password") else ""}
-    <div>Domain:</div><div>{domain}</div>
+    <div>Username:</div><div>{username_html}</div>
+    {password_row_html}
+    <div>Domain:</div><div>{domain_html}</div>
     <div>Expires:</div><div>{html.escape(expiry)}</div>
   </div>"""
     if service == "ssh":
@@ -3617,13 +3697,13 @@ def render_service_result(service, result):
         services_html = render_service_status_summary()
         content += f"""
   <div class="info-grid">
-    <div>IP:</div><div>{html.escape(clean_ip or "N/A")}</div>
+    <div>IP:</div><div>{ip_html}</div>
     <div>Nameserver:</div><div>{nameserver_html}</div>
-    <div>Public Key:</div><div>{html.escape(clean_public_key or "Not configured")}</div>
+    <div>Public Key:</div><div>{public_key_html}</div>
   </div>
   {ports_html}
   {services_html}
-  {nameserver_copy_script}"""
+  {copy_script_html}"""
         if ssh_details_raw:
             formatted_details = html.escape(format_ssh_details_text(ssh_details_raw))
             content += f"""
@@ -3632,21 +3712,23 @@ def render_service_result(service, result):
     <pre style="margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,'Cascadia Code','SF Mono',monospace;color:var(--text-primary);">{formatted_details}</pre>
   </div>"""
     elif service == "vless":
-        tls_link = html.escape(str(result.get("tls_link", "")))
-        nontls_link = html.escape(str(result.get("nontls_link", "")))
+        raw_tls_link = str(result.get("tls_link", "")).strip()
+        raw_nontls_link = str(result.get("nontls_link", "")).strip()
+        tls_link_html = render_copy_value(raw_tls_link, "Not available")
+        nontls_link_html = render_copy_value(raw_nontls_link, "Not available")
         content += f"""
-  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS TLS</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{tls_link}"><sl-copy-button value="{tls_link}"></sl-copy-button></div></div>
-  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS Non-TLS</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{nontls_link}"><sl-copy-button value="{nontls_link}"></sl-copy-button></div></div>"""
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS TLS</div><div>{tls_link_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> VLESS WS Non-TLS</div><div>{nontls_link_html}</div></div>
+  {field_copy_script}"""
     elif service == "hysteria":
-        link = html.escape(str(result.get("link", "")))
-        legacy_link = html.escape(str(result.get("legacy_link", "")))
-        obfs_value = str(result.get("obfs", "")).strip() or "Not configured"
         content += f"""
-  <div class="info-grid"><div>Obfs:</div><div>{html.escape(obfs_value)}</div></div>
-  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Hysteria Link (HTTP Injector)</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{link}"><sl-copy-button value="{link}"></sl-copy-button></div></div>"""
-        if legacy_link and legacy_link != link:
+  <div class="info-grid"><div>Obfs:</div><div>{obfs_html}</div></div>
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Hysteria Link (HTTP Injector)</div><div>{hysteria_link_html}</div></div>"""
+        if raw_hysteria_legacy_link and raw_hysteria_legacy_link != raw_hysteria_link:
             content += f"""
-  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Legacy Hysteria URI</div><div style="display:flex;align-items:center;gap:.4em;"><input type="text" readonly value="{legacy_link}"><sl-copy-button value="{legacy_link}"></sl-copy-button></div></div>"""
+  <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Legacy Hysteria URI</div><div>{legacy_hysteria_link_html}</div></div>"""
+        content += f"""
+  {copy_script_html}"""
     elif service == "wireguard":
         config_text = str(result.get("config_content", ""))
         config_json = json.dumps(config_text)
