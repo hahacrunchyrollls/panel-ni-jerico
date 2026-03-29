@@ -2785,6 +2785,9 @@ BASE_TEMPLATE = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
+{% if ads_enabled %}
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
+{% endif %}
 <script type="module" src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/shoelace.js"></script>
 <style>
 :root{--primary-color:#7c1027;--primary-hover:#5d0919;--accent-color:#a91e3c;--accent-hover:#c13350;--bg-gradient:linear-gradient(180deg,#fffefb 0%,#f8ebef 48%,#fff8fa 100%);--card-bg:linear-gradient(180deg,#ffffff 0%,#fff2f5 100%);--card-border:#5d0919;--card-shadow:8px 8px 0 rgba(93,9,25,.88);--soft-shadow:0 20px 42px rgba(93,9,25,.14);--success:#8f1730;--error:#391019;--warning:#b54e61;--text-primary:#381018;--text-secondary:#6a2030;--text-muted:#955663;--surface:#ffffff;--surface-alt:#fff3f6;--paper:#fffaf8;--ink:#1f060c;--border-radius:18px;--transition:all .22s ease;}
@@ -2916,7 +2919,6 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 <main class="page-main">
 {% if show_ads %}
 <div class="global-ad-wrap">
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2897141099701828" crossorigin="anonymous"></script>
   <div class="global-ad-shell">
     <ins class="adsbygoogle"
          style="display:block"
@@ -3076,6 +3078,7 @@ def render_page(title, content, show_ads=False):
         navbar=Markup(navbar_html()),
         footer=Markup(footer_html()),
         content=Markup(content),
+        ads_enabled=bool(ADS_ENABLED),
         show_ads=bool(ADS_ENABLED and show_ads),
     )
 
