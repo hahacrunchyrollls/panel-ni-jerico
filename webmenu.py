@@ -3596,11 +3596,21 @@ def render_service_result(service, result):
             return (urllib.parse.urlsplit(text).hostname or "").strip()
         except Exception:
             return ""
+    def port_from_url(source):
+        text = str(source or "").strip()
+        if not text:
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(text)
+            return str(parsed.port or "").strip()
+        except Exception:
+            return ""
     current_backend = selected_backend()
     backend_name = html.escape(backend_display_label(current_backend)) if current_backend else ""
     ssh_details_raw = ""
     copy_script_html = ""
     obfs_html = ""
+    hysteria_port_html = ""
     hysteria_link_html = ""
     legacy_hysteria_link_html = ""
     raw_hysteria_link = ""
@@ -3655,12 +3665,14 @@ def render_service_result(service, result):
             extract_labeled_value(hysteria_detail_text, ["Obfs", "OBFS", "Obfs Password", "obfs-password", "obfsParam"]),
         ) or "Not configured"
         hysteria_domain = first_nonempty_value(raw_domain, hostname_from_url(raw_hysteria_link), current_host())
+        hysteria_port = first_nonempty_value(result.get("port", ""), port_from_url(raw_hysteria_link), port_from_url(raw_hysteria_legacy_link)) or "Not configured"
         username_html = render_copy_value(raw_username, "N/A")
         if raw_password:
             password_html = render_copy_value(raw_password, "N/A")
             password_row_html = f"<div>Password:</div><div>{password_html}</div>"
         domain_html = render_copy_value(hysteria_domain, "N/A")
         obfs_html = render_copy_value(obfs_value, "Not configured")
+        hysteria_port_html = render_copy_value(hysteria_port, "Not configured")
         hysteria_link_html = render_copy_value(raw_hysteria_link, "Not available")
         legacy_hysteria_link_html = render_copy_value(raw_hysteria_legacy_link, "Not available")
         copy_script_html = field_copy_script
@@ -3722,7 +3734,7 @@ def render_service_result(service, result):
   {field_copy_script}"""
     elif service == "hysteria":
         content += f"""
-  <div class="info-grid"><div>Obfs:</div><div>{obfs_html}</div></div>
+  <div class="info-grid"><div>Port:</div><div>{hysteria_port_html}</div><div>Obfs:</div><div>{obfs_html}</div></div>
   <div class="link-box"><div class="link-title tls"><img src="{icon}" style="height:1.05em;"> Hysteria Link (HTTP Injector)</div><div>{hysteria_link_html}</div></div>"""
         if raw_hysteria_legacy_link and raw_hysteria_legacy_link != raw_hysteria_link:
             content += f"""
