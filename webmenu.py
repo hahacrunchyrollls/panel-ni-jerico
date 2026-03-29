@@ -2883,8 +2883,9 @@ button.server-card-button.is-active .server-card-health.is-dead .server-card-hea
 .footer-copy{color:rgba(255,241,245,.88);font-weight:700;max-width:560px;}
 .footer-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem;}
 .footer-badge{display:inline-flex;align-items:center;gap:8px;padding:.45rem .76rem;border-radius:999px;background:transparent;border:1px solid rgba(255,255,255,.16);color:#fff;font-size:.82rem;font-weight:800;}
-.footer-referral{display:inline-flex;align-items:center;justify-content:center;margin-top:1rem;padding:.5rem .6rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:220px;box-sizing:border-box;}
-.footer-referral img{display:block;width:100%;height:auto;max-width:170px;}
+.footer-referral{display:inline-flex;flex-direction:column;align-items:flex-start;gap:.5rem;margin-top:1rem;padding:.65rem .8rem;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);max-width:220px;box-sizing:border-box;text-decoration:none;}
+.footer-referral-title{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.06em;color:#fff;line-height:1;}
+.footer-referral img{display:block;width:100%;height:auto;max-width:170px;flex:none;}
 .footer-column{display:flex;flex-direction:column;gap:.9rem;min-width:0;position:relative;z-index:1;}
 .footer-heading{font-family:'Bangers','Comic Neue',cursive;font-size:1rem;letter-spacing:.08em;color:#ffd8df;}
 .footer-link-list{display:flex;flex-direction:column;gap:.62rem;}
@@ -2910,7 +2911,7 @@ ins.adsbygoogle[data-ad-status="unfilled"]{display:none!important;}
 @media (max-width:960px){.server-selector-grid{grid-template-columns:1fr;}}
 @media (max-width:980px){.footer-grid{grid-template-columns:1fr 1fr;}.footer-brand-panel{grid-column:1/-1;padding-right:0;}}
 @media (max-width:880px){.navbar-nav{display:none}.burger-btn{display:inline-flex;align-items:center;justify-content:center;}.navbar{padding:.6rem .8rem}}
-@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.35rem .45rem;max-width:180px}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
+@media (max-width:576px){.container{width:100%;padding:0 .75rem}.neo-box{padding:1.2rem 1rem}.info-grid,.status-grid-2,.services-grid,.server-selector-grid,.admin-account-grid{grid-template-columns:1fr}.stats-container{flex-direction:column;align-items:center}.server-selector{padding:1rem}.server-current-pill{border-radius:18px}.navbar-brand{flex-wrap:wrap;justify-content:flex-start}.section-title{font-size:2.2rem}.footer-shell{padding:1.4rem .9rem .85rem}.footer-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.footer-brand-panel{grid-column:1/-1;padding-right:0}.footer-brand-row{align-items:flex-start;margin-bottom:.55rem}.footer-logo{height:44px;width:44px}.footer-title{font-size:1.4rem}.footer-copy{font-size:.92rem}.footer-badges{display:none}.footer-referral{margin-top:.75rem;padding:.45rem .5rem;max-width:180px;gap:.45rem;align-items:flex-start}.footer-referral-title{font-size:.9rem}.footer-referral img{max-width:150px}.footer-column{gap:.5rem}.footer-heading{font-size:.9rem}.footer-link-list{gap:.28rem}.footer-link{font-size:.88rem}.footer-bottom{flex-direction:column;align-items:flex-start;margin-top:.9rem;padding-top:.75rem;gap:8px}.footer-meta{flex-direction:column;align-items:flex-start;gap:4px;font-size:.84rem}.footer-reset-note{font-size:.82rem;line-height:1.35}.footer-separator{display:none}.footer-bottom-links{width:100%;display:flex;gap:12px;flex-wrap:wrap}.footer-link:hover,.footer-link:focus{transform:none}}
 </style>
 </head>
 <body>
@@ -3026,6 +3027,7 @@ def footer_html():
         </div>
         <a class="footer-referral" href="https://www.digitalocean.com/?refcode=197466ae9d8c&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge" target="_blank" rel="noopener noreferrer">
           <img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%201.svg" alt="DigitalOcean Referral Badge" loading="lazy">
+          <span class="footer-referral-title">Digital Ocean Free Credit</span>
         </a>
       </div>
       <div class="footer-column">
@@ -3529,6 +3531,59 @@ def render_service_result(service, result):
         if not clean_public_key or "PORTS INFORMATION" in clean_public_key or "\x1b[" in clean_public_key or len(clean_public_key) > 200:
             clean_public_key = extract_labeled_value(combined_ssh_text, ["Public Key"]) or "Not configured"
         domain = html.escape(clean_domain)
+        nameserver_html = html.escape(clean_nameserver or "Not configured")
+        nameserver_copy_script = ""
+        if clean_nameserver and clean_nameserver != "Not configured":
+            nameserver_html = (
+                f'<button type="button" '
+                f'data-copy="{html.escape(clean_nameserver, quote=True)}" '
+                f'onclick="copySshNameserver(this)" '
+                f'style="display:inline-flex;align-items:center;gap:8px;padding:.55rem .75rem;'
+                f'border-radius:14px;border:2px dashed var(--card-border);background:rgba(255,255,255,.92);'
+                f'color:var(--primary-color);font-weight:700;box-shadow:none;font-family:\'Comic Neue\',\'Trebuchet MS\',sans-serif;'
+                f'letter-spacing:0;text-transform:none;max-width:100%;word-break:break-word;">'
+                f'<span>{html.escape(clean_nameserver)}</span>'
+                f'<i class="fa-regular fa-copy" aria-hidden="true"></i>'
+                f'</button>'
+            )
+            nameserver_copy_script = """
+  <script>
+  function copySshNameserver(button) {
+    if (!button) return;
+    const value = button.getAttribute('data-copy') || '';
+    if (!value) return;
+    const originalBorder = button.style.borderColor;
+    const originalColor = button.style.color;
+    const flashSuccess = function() {
+      button.style.borderColor = 'var(--success)';
+      button.style.color = 'var(--success)';
+      setTimeout(function() {
+        button.style.borderColor = originalBorder;
+        button.style.color = originalColor;
+      }, 1400);
+    };
+    const fallbackCopy = function() {
+      const field = document.createElement('textarea');
+      field.value = value;
+      field.setAttribute('readonly', '');
+      field.style.position = 'fixed';
+      field.style.opacity = '0';
+      document.body.appendChild(field);
+      field.focus();
+      field.select();
+      try {
+        document.execCommand('copy');
+        flashSuccess();
+      } catch (err) {}
+      document.body.removeChild(field);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(value).then(flashSuccess).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
+    }
+  }
+  </script>"""
     content = f"""
 <div class="container"><div class="neo-box">
   <div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>Success! Your {label} account has been created.</div></div>
@@ -3563,11 +3618,12 @@ def render_service_result(service, result):
         content += f"""
   <div class="info-grid">
     <div>IP:</div><div>{html.escape(clean_ip or "N/A")}</div>
-    <div>Nameserver:</div><div>{html.escape(clean_nameserver or "Not configured")}</div>
+    <div>Nameserver:</div><div>{nameserver_html}</div>
     <div>Public Key:</div><div>{html.escape(clean_public_key or "Not configured")}</div>
   </div>
   {ports_html}
-  {services_html}"""
+  {services_html}
+  {nameserver_copy_script}"""
         if ssh_details_raw:
             formatted_details = html.escape(format_ssh_details_text(ssh_details_raw))
             content += f"""
