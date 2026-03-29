@@ -56,6 +56,8 @@ PANEL_VISIT_SYNC_MIN_INTERVAL = 10
 SUPPORTED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
 ADS_ENABLED = str(os.environ.get("ENABLE_ADS", "")).strip().lower() in {"1", "true", "yes", "on"}
 DAILY_RESET_TIME_LABEL = "12:00 AM PH time"
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+TURNSTILE_TIMEOUT_SECONDS = 8
 try:
     PHILIPPINE_TIMEZONE = ZoneInfo("Asia/Manila") if ZoneInfo is not None else None
 except Exception:
@@ -271,6 +273,62 @@ def env_first(*names):
         if value:
             return value
     return ""
+
+
+def turnstile_site_key():
+    return env_first("CLOUDFLARE_TURNSTILE_SITE_KEY", "TURNSTILE_SITE_KEY")
+
+
+def turnstile_secret_key():
+    return env_first("CLOUDFLARE_TURNSTILE_SECRET_KEY", "TURNSTILE_SECRET_KEY")
+
+
+def turnstile_configured():
+    return bool(turnstile_site_key() and turnstile_secret_key())
+
+
+def turnstile_setup_message():
+    return "Account creation is temporarily unavailable while the site security check is being configured."
+
+
+def turnstile_error_message(error_codes=None):
+    codes = {str(code or "").strip().lower() for code in (error_codes or []) if str(code or "").strip()}
+    if not codes:
+        return "Captcha verification failed. Please try again."
+    if "timeout-or-duplicate" in codes:
+        return "Captcha expired or was already used. Please complete it again."
+    if "missing-input-response" in codes or "invalid-input-response" in codes:
+        return "Complete the captcha before creating your account."
+    if "missing-input-secret" in codes or "invalid-input-secret" in codes:
+        return turnstile_setup_message()
+    return "Captcha verification failed. Please try again."
+
+
+def verify_turnstile_response(token, remote_ip=""):
+    if not turnstile_configured():
+        return False, turnstile_setup_message()
+    token = str(token or "").strip()
+    if not token:
+        return False, "Complete the captcha before creating your account."
+    payload = {"secret": turnstile_secret_key(), "response": token}
+    remote_ip = str(remote_ip or "").strip()
+    if remote_ip:
+        payload["remoteip"] = remote_ip
+    encoded = urllib.parse.urlencode(payload).encode("utf-8")
+    req = urllib.request.Request(
+        TURNSTILE_VERIFY_URL,
+        data=encoded,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TURNSTILE_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8")
+        data = json.loads(raw)
+    except Exception:
+        return False, "Captcha verification is unavailable right now. Please try again."
+    if bool(data.get("success")):
+        return True, ""
+    return False, turnstile_error_message(data.get("error-codes"))
 
 
 def configured_server_api_url():
@@ -2735,6 +2793,7 @@ body::before{content:"";position:fixed;inset:0;z-index:-2;background:radial-grad
 a{color:var(--primary-color);}
 button{background:linear-gradient(180deg,var(--primary-color) 0%,var(--accent-color) 100%);color:#fff;border:3px solid var(--ink);border-radius:16px;font-weight:700;font-size:1rem;padding:14px 28px;cursor:pointer;transition:var(--transition);display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:5px 5px 0 var(--ink);font-family:'Bangers','Comic Neue',cursive;letter-spacing:.08em;text-transform:uppercase;}
 button:hover,button:focus{transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink);background:linear-gradient(180deg,var(--accent-hover) 0%,var(--primary-color) 100%);outline:none;}
+button:disabled{cursor:not-allowed;opacity:.72;transform:none!important;box-shadow:5px 5px 0 rgba(31,6,12,.45)!important;filter:saturate(.7);}
 .page-main{flex:1 0 auto;}
 .container{width:min(100%,1180px);max-width:1180px;margin:2rem auto;padding:0 1rem;box-sizing:border-box;}
 .neo-box{background:var(--card-bg);border-radius:var(--border-radius);box-shadow:var(--card-shadow),var(--soft-shadow);padding:1.8rem 1.5rem;margin-bottom:2rem;border:3px solid var(--card-border);position:relative;overflow:hidden;}
@@ -2754,6 +2813,10 @@ input[type="text"]:focus,input[type="password"]:focus,input[type="search"]:focus
 .form-label{display:block;font-family:'Bangers','Comic Neue',cursive;font-weight:700;letter-spacing:.06em;margin-bottom:.8rem;width:100%;max-width:400px;text-align:center;color:var(--primary-color);}
 .form-input-container{width:100%;display:flex;justify-content:center;max-width:400px;}
 form{display:flex;flex-direction:column;align-items:center;width:100%;margin-bottom:1.5rem;}
+.turnstile-shell{width:100%;max-width:400px;display:flex;justify-content:center;}
+.turnstile-shell > div{width:100%;}
+.turnstile-help{width:100%;max-width:400px;margin-top:.7rem;color:var(--text-muted);font-size:.94rem;font-weight:700;text-align:center;}
+.turnstile-config-note{width:100%;max-width:400px;margin:0 auto 1.4rem auto;}
 .navbar{width:100%;background:rgba(255,250,249,.97);backdrop-filter:blur(10px);border-bottom:4px solid var(--card-border);box-shadow:0 8px 0 rgba(93,9,25,.18);display:flex;align-items:center;justify-content:space-between;padding:1rem max(1.5rem,5%);position:sticky;top:0;z-index:100;box-sizing:border-box;}
 .navbar-brand{display:flex;align-items:center;gap:10px;font-family:'Bangers','Comic Neue',cursive;font-weight:700;font-size:clamp(1.1rem,3vw,1.6rem);letter-spacing:.06em;color:var(--primary-color);text-decoration:none;line-height:1.1;}
 .brand-icon{height:2.1em;width:2.1em;object-fit:cover;border-radius:50%;border:2px solid var(--card-border);background:#fff;box-shadow:3px 3px 0 rgba(93,9,25,.2);flex:0 0 auto;}
@@ -3297,6 +3360,10 @@ def render_service_form(service, error=None, values=None):
     username_value = html.escape(values.get("username", ""))
     password_value = html.escape(values.get("password", ""))
     bypass_value = values.get("bypass_option", "")
+    turnstile_ready = turnstile_configured()
+    turnstile_site = html.escape(turnstile_site_key())
+    callback_prefix = f"turnstile_{service}"
+    turnstile_help_id = f"{service}-turnstile-help"
     error_html = ""
     if error:
         error_html = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
@@ -3327,6 +3394,28 @@ def render_service_form(service, error=None, values=None):
           </select>
         </div>
       </div>"""
+    security_html = f"""
+    <div class="success-msg turnstile-config-note" style="background:rgba(239,68,68,.08);border-left-color:var(--warning);margin-top:-.2rem;">
+      <i class="fa-solid fa-shield-halved" style="color:var(--warning);"></i>
+      <div>{html.escape(turnstile_setup_message())}</div>
+    </div>"""
+    if turnstile_ready:
+        security_html = f"""
+      <div class="form-group">
+        <label class="form-label"><i class="fa-solid fa-shield-halved"></i> Security Check</label>
+        <div class="turnstile-shell">
+          <div class="cf-turnstile"
+               data-sitekey="{turnstile_site}"
+               data-theme="light"
+               data-size="flexible"
+               data-callback="{callback_prefix}_success"
+               data-expired-callback="{callback_prefix}_expired"
+               data-error-callback="{callback_prefix}_error"></div>
+        </div>
+        <div class="turnstile-help" id="{turnstile_help_id}">Complete the captcha before creating your account.</div>
+      </div>"""
+    submit_disabled_attr = ' disabled aria-disabled="true"'
+    turnstile_script = '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>' if turnstile_ready else ""
     content = f"""
 <div class="container"><div class="neo-box" style="max-width:500px;margin:0 auto;text-align:center;">
   <div style="display:flex;align-items:center;justify-content:center;gap:.8em;margin-bottom:1.5em;">
@@ -3345,22 +3434,56 @@ def render_service_form(service, error=None, values=None):
     </div>
     {password_group}
     {extra_group}
-    <button type="submit" style="width:100%;max-width:400px;margin:0 auto;"><i class="fa-solid fa-user-plus"></i> Create Account</button>
+    {security_html}
+    <button type="submit"{submit_disabled_attr} style="width:100%;max-width:400px;margin:0 auto;"><i class="fa-solid fa-user-plus"></i> Create Account</button>
   </form>
   <script>
   (function() {{
     var form = document.querySelector("form[action='/{service}']");
-    if (form) {{
-      form.addEventListener('submit', function(e) {{
-        if (!form.checkValidity()) return;
-        e.preventDefault();
-        var overlay = document.getElementById('loadingOverlay');
-        if (overlay) overlay.classList.add('active');
-        setTimeout(function() {{ form.submit(); }}, 1000);
-      }});
+    if (!form) return;
+    var submitButton = form.querySelector('button[type="submit"]');
+    var help = document.getElementById('{turnstile_help_id}');
+    var turnstileReady = {str(turnstile_ready).lower()};
+    function setCaptchaState(ready, message) {{
+      form.dataset.turnstileComplete = ready ? 'true' : 'false';
+      if (submitButton) submitButton.disabled = !ready;
+      if (help && message) help.textContent = message;
     }}
+    if (turnstileReady) {{
+      setCaptchaState(false, 'Complete the captcha before creating your account.');
+      window.{callback_prefix}_success = function(token) {{
+        setCaptchaState(!!token, 'Security check complete. You can create the account now.');
+      }};
+      window.{callback_prefix}_expired = function() {{
+        setCaptchaState(false, 'Captcha expired. Please complete it again.');
+      }};
+      window.{callback_prefix}_error = function() {{
+        setCaptchaState(false, 'Captcha failed to load. Refresh the page and try again.');
+      }};
+    }} else {{
+      form.dataset.turnstileComplete = 'false';
+      if (submitButton) submitButton.disabled = true;
+    }}
+    form.addEventListener('submit', function(e) {{
+      if (!form.checkValidity()) return;
+      if (form.dataset.turnstileComplete !== 'true') {{
+        e.preventDefault();
+        if (help) {{
+          help.textContent = turnstileReady
+            ? 'Complete the captcha before creating your account.'
+            : 'Account creation is temporarily unavailable right now.';
+        }}
+        return;
+      }}
+      e.preventDefault();
+      if (submitButton) submitButton.disabled = true;
+      var overlay = document.getElementById('loadingOverlay');
+      if (overlay) overlay.classList.add('active');
+      setTimeout(function() {{ form.submit(); }}, 1000);
+    }});
   }})();
   </script>
+  {turnstile_script}
   <a href="/services" style="display:block;margin-top:1.5rem;text-decoration:none;">
     <button style="width:100%;max-width:400px;margin:0 auto;background:var(--surface);color:var(--text-primary);border:3px solid var(--card-border);box-shadow:5px 5px 0 rgba(93,9,25,.22);"><i class="fa-solid fa-arrow-left"></i> Back to Service</button>
   </a>
@@ -4482,6 +4605,11 @@ def submit_service_request(service):
     if selection_redirect:
         return selection_redirect
     client_ip = get_request_ip()
+    if not turnstile_configured():
+        return render_service_form(service, error=turnstile_setup_message(), values=values)
+    turnstile_ok, turnstile_error = verify_turnstile_response(request.form.get("cf-turnstile-response", ""), remote_ip=client_ip)
+    if not turnstile_ok:
+        return render_service_form(service, error=turnstile_error, values=values)
     cooldown_remaining = get_create_cooldown_remaining(client_ip, service)
     if cooldown_remaining > 0:
         return render_service_form(
