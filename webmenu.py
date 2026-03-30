@@ -38,9 +38,8 @@ AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 SESSION_SECRET_FILE = STATE_DIR / "session_secret.txt"
 README_FILE = Path.cwd() / "README.md"
-FAVICON_SOURCE_URL = "aika.jpg"
-NAVBAR_LOGO_URL = "aika.jpg"
-FAVICON_ICO_FILE = Path.cwd() / "favicon.ico"
+FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
+NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 
 CREATE_EXPIRY_DEFAULTS = {
     "ssh": 5,
@@ -2281,28 +2280,6 @@ def decode_data_image_uri(source_url):
         return b"", ""
 
 
-def local_image_asset_path(source_url):
-    source_url = (source_url or "").strip()
-    if not source_url:
-        return None
-    parts = urllib.parse.urlsplit(source_url)
-    if parts.scheme or parts.netloc:
-        return None
-    candidate = Path(source_url)
-    if not candidate.is_absolute():
-        candidate = Path.cwd() / candidate
-    try:
-        resolved = candidate.resolve()
-        root = Path.cwd().resolve()
-    except Exception:
-        return None
-    if resolved != root and root not in resolved.parents:
-        return None
-    if not resolved.is_file():
-        return None
-    return resolved
-
-
 @lru_cache(maxsize=8)
 def image_source_asset(source_url):
     source_url = (source_url or "").strip()
@@ -2313,14 +2290,6 @@ def image_source_asset(source_url):
         if mime not in SUPPORTED_IMAGE_MIMES:
             mime = detect_image_mime(payload) or guess_image_mime(source_url)
         return payload, mime
-    local_path = local_image_asset_path(source_url)
-    if local_path is not None:
-        try:
-            payload = local_path.read_bytes()
-            mime = detect_image_mime(payload) or guess_image_mime(local_path.name)
-            return payload, mime if mime in SUPPORTED_IMAGE_MIMES else "application/octet-stream"
-        except Exception:
-            return b"", ""
     try:
         req = urllib.request.Request(source_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -3008,10 +2977,8 @@ BASE_TEMPLATE = """
 <head>
 <title>{{ title }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="shortcut icon" href="/favicon.ico">
-<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/svg+xml" href="/site-icon.svg">
-<link rel="apple-touch-icon" href="/site-logo">
+<link rel="apple-touch-icon" href="/site-icon.svg">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
@@ -5402,19 +5369,6 @@ def site_logo():
 
 @app.get("/favicon.ico")
 def favicon_legacy():
-    try:
-        payload = FAVICON_ICO_FILE.read_bytes()
-        if payload:
-            response = Response(payload, mimetype="image/x-icon")
-            response.headers["Cache-Control"] = "public, max-age=3600"
-            return response
-    except Exception:
-        pass
-    payload, mime = image_source_asset(FAVICON_SOURCE_URL)
-    if payload and mime in SUPPORTED_IMAGE_MIMES:
-        response = Response(payload, mimetype=mime)
-        response.headers["Cache-Control"] = "public, max-age=3600"
-        return response
     return redirect("/site-icon.svg", code=302)
 
 
