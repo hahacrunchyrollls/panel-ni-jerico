@@ -38,6 +38,8 @@ AUDIT_FILE = STATE_DIR / "audit.json"
 COOLDOWN_FILE = STATE_DIR / "cooldowns.json"
 SESSION_SECRET_FILE = STATE_DIR / "session_secret.txt"
 README_FILE = Path.cwd() / "README.md"
+LOCAL_FAVICON_FILE = Path.cwd() / "favicon.ico"
+LOCAL_SITE_IMAGE_FILE = Path.cwd() / "aika.jpg"
 FAVICON_SOURCE_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 NAVBAR_LOGO_URL = "https://raw.githubusercontent.com/hahacrunchyrollls/logo-s/refs/heads/main/aika.jpg"
 
@@ -2280,6 +2282,21 @@ def decode_data_image_uri(source_url):
         return b"", ""
 
 
+def local_image_asset(path):
+    try:
+        target = Path(path)
+    except Exception:
+        return b"", ""
+    if not target.is_file():
+        return b"", ""
+    try:
+        payload = target.read_bytes()
+    except Exception:
+        return b"", ""
+    mime = detect_image_mime(payload) or guess_image_mime(target.name)
+    return payload, mime if mime in SUPPORTED_IMAGE_MIMES else "application/octet-stream"
+
+
 @lru_cache(maxsize=8)
 def image_source_asset(source_url):
     source_url = (source_url or "").strip()
@@ -2306,6 +2323,10 @@ def image_source_asset(source_url):
 
 @lru_cache(maxsize=1)
 def favicon_data_uri():
+    payload, mime = local_image_asset(LOCAL_SITE_IMAGE_FILE)
+    if payload and mime in SUPPORTED_IMAGE_MIMES:
+        encoded = base64.b64encode(payload).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
     payload, mime = image_source_asset(FAVICON_SOURCE_URL)
     if not payload or not mime:
         return ""
@@ -2977,8 +2998,10 @@ BASE_TEMPLATE = """
 <head>
 <title>{{ title }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="/site-icon.svg">
-<link rel="apple-touch-icon" href="/site-icon.svg">
+<link rel="icon" type="image/x-icon" href="/favicon.ico?v=2">
+<link rel="shortcut icon" href="/favicon.ico?v=2">
+<link rel="icon" type="image/svg+xml" href="/site-icon.svg?v=2">
+<link rel="apple-touch-icon" href="/site-logo">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.13.0/cdn/themes/light.css" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@400;700&display=swap">
@@ -5369,6 +5392,15 @@ def site_logo():
 
 @app.get("/favicon.ico")
 def favicon_legacy():
+    if LOCAL_FAVICON_FILE.is_file():
+        try:
+            payload = LOCAL_FAVICON_FILE.read_bytes()
+        except Exception:
+            payload = b""
+        if payload:
+            response = Response(payload, mimetype="image/x-icon")
+            response.headers["Cache-Control"] = "public, max-age=3600"
+            return response
     return redirect("/site-icon.svg", code=302)
 
 
