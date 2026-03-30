@@ -401,6 +401,7 @@ def load_numbered_backends():
 def default_panel_config():
     return {
         "daily_limit": DAILY_ACCOUNT_LIMIT_DEFAULT,
+        "daily_limit_by_service": {service: DAILY_ACCOUNT_LIMIT_DEFAULT for service in CREATE_EXPIRY_DEFAULTS},
         "create_expiry": dict(CREATE_EXPIRY_DEFAULTS),
         "service_access": {service: True for service in CREATE_EXPIRY_DEFAULTS},
         "vless_bypass_options": [],
@@ -537,6 +538,20 @@ def normalize_panel_config(raw_config):
         normalized["daily_limit"] = max(1, min(int(config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)), 999))
     except Exception:
         normalized["daily_limit"] = DAILY_ACCOUNT_LIMIT_DEFAULT
+    normalized["daily_limit_by_service"] = {
+        service: normalized["daily_limit"]
+        for service in CREATE_EXPIRY_DEFAULTS
+    }
+    raw_daily_limit_by_service = config.get("daily_limit_by_service")
+    if isinstance(raw_daily_limit_by_service, dict):
+        for service in normalized["daily_limit_by_service"]:
+            try:
+                normalized["daily_limit_by_service"][service] = max(
+                    1,
+                    min(int(raw_daily_limit_by_service.get(service, normalized["daily_limit"])), 999),
+                )
+            except Exception:
+                normalized["daily_limit_by_service"][service] = normalized["daily_limit"]
     try:
         normalized["updated_at"] = max(int(config.get("updated_at", 0) or 0), 0)
     except Exception:
@@ -1377,18 +1392,38 @@ def backend_request(path, payload=None, method="POST"):
     return backend_request_for(selected_backend(), path, payload=payload, method=method)
 
 
-def get_daily_account_limit():
-    return int(load_config()["daily_limit"])
+def get_daily_account_limits():
+    config = load_config()
+    fallback = int(config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT))
+    limits = config.get("daily_limit_by_service", {})
+    return {
+        service: int(limits.get(service, fallback))
+        for service in CREATE_EXPIRY_DEFAULTS
+    }
 
 
-def set_daily_account_limit(value):
+def get_daily_account_limit(service=None):
+    config = load_config()
+    if service:
+        limits = config.get("daily_limit_by_service", {})
+        return int(limits.get(service, config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)))
+    return int(config["daily_limit"])
+
+
+def set_daily_account_limit(service, value):
+    if service not in CREATE_EXPIRY_DEFAULTS:
+        return False
     try:
         limit = max(1, min(int(value), 999))
     except Exception:
         return False
     with state_lock:
         config = load_config()
-        config["daily_limit"] = limit
+        config["daily_limit_by_service"] = {
+            item: int(config.get("daily_limit_by_service", {}).get(item, config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)))
+            for item in CREATE_EXPIRY_DEFAULTS
+        }
+        config["daily_limit_by_service"][service] = limit
         return save_panel_config(config)
 
 
@@ -3298,10 +3333,10 @@ def render_page(title, content, show_ads=False):
 
 def build_service_cards():
     cards = []
-    daily_limit = get_daily_account_limit()
     backend_id = selected_backend_id() or "default"
     enabled = backend_configured()
     for service, label, icon in SERVICE_META:
+        daily_limit = get_daily_account_limit(service)
         service_created_today = get_scoped_daily_created_count(service=service, backend_id=backend_id)
         service_enabled = is_service_creation_enabled(service)
         button_active = enabled and service_enabled
@@ -5121,7 +5156,9 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
         banner = f'<div class="success-msg"><i class="fa-solid fa-circle-check"></i><div>{html.escape(success)}</div></div>'
     elif error:
         banner = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
+    daily_limits = get_daily_account_limits()
     expiry_json = json.dumps(expiry).replace("</", "<\\/")
+    daily_limit_json = json.dumps(daily_limits).replace("</", "<\\/")
     expiry_options_html = "".join(
         f'<option value="{html.escape(service, quote=True)}">{html.escape(label.title() if label.isupper() else label)}</option>'
         for service, label, _icon in SERVICE_META
@@ -5151,7 +5188,7 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     {admin_stats_html}
     {admin_online_breakdown_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" min="1" max="999" value="{get_daily_account_limit()}"></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="daily-limit-service-select">{expiry_options_html}</select></div></div><div class="form-group"><label class="form-label">Limit</label><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" id="daily-limit-input" min="1" max="999" value="{daily_limits.get("ssh", DAILY_ACCOUNT_LIMIT_DEFAULT)}"></div></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form><script>(function(){{const serviceSelect=document.getElementById('daily-limit-service-select');const limitInput=document.getElementById('daily-limit-input');const limitMap={daily_limit_json};if(!serviceSelect||!limitInput)return;function syncLimit(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(limitMap,key))limitInput.value=limitMap[key];}}serviceSelect.addEventListener('change',syncLimit);syncLimit();}})();</script></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select">{expiry_options_html}</select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
     </div>
     <div class="link-box" style="margin-top:1.2rem;">
@@ -5437,11 +5474,12 @@ def submit_service_request(service):
         )
     backend = selected_backend()
     backend_id = selected_backend_id() or "default"
-    if get_scoped_daily_created_count(service=service, backend_id=backend_id) >= get_daily_account_limit():
+    service_daily_limit = get_daily_account_limit(service)
+    if get_scoped_daily_created_count(service=service, backend_id=backend_id) >= service_daily_limit:
         backend_name = backend_display_label(backend) if backend else "the selected server"
         return render_service_form(
             service,
-            error=f"Daily {service_label(service)} account creation limit reached for {backend_name} today. It resets at {DAILY_RESET_TIME_LABEL}.",
+            error=f"Daily {service_label(service)} account creation limit ({service_daily_limit}) reached for {backend_name} today. It resets at {DAILY_RESET_TIME_LABEL}.",
             values=values,
         )
     payload = {"days": get_create_account_expiry(service)}
@@ -5593,9 +5631,10 @@ def admin_post():
         log_admin_event("unauthorized_admin_action", "failed", {"action": action})
         return redirect("/admin")
     if action == "update_limit":
-        if set_daily_account_limit(request.form.get("limit", "")):
-            log_admin_event("update_limit", "success", {"limit": request.form.get("limit", "")})
-            return redirect("/admin?success=" + urllib.parse.quote("Daily account limit updated."), code=303)
+        service = request.form.get("service", "")
+        if set_daily_account_limit(service, request.form.get("limit", "")):
+            log_admin_event("update_limit", "success", {"service": service, "limit": request.form.get("limit", "")})
+            return redirect("/admin?success=" + urllib.parse.quote(f"Daily account limit updated for {service_label(service)}."), code=303)
         return redirect("/admin?error=" + urllib.parse.quote("Failed to update limit."), code=303)
     if action == "update_create_expiry":
         service = request.form.get("service", "")
