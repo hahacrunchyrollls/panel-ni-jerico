@@ -406,15 +406,29 @@ def default_panel_config():
         "create_expiry": dict(CREATE_EXPIRY_DEFAULTS),
         "service_access": {service: True for service in CREATE_EXPIRY_DEFAULTS},
         "vless_bypass_options": [],
+        "config_revision": 0,
         "updated_at": 0,
     }
+
+
+def panel_config_sort_key(config):
+    data = config if isinstance(config, dict) else {}
+    try:
+        updated_at = max(int(data.get("updated_at", 0) or 0), 0)
+    except Exception:
+        updated_at = 0
+    try:
+        revision = max(int(data.get("config_revision", 0) or 0), 0)
+    except Exception:
+        revision = 0
+    return (updated_at, revision)
 
 
 def load_config():
     local_config = load_local_panel_config()
     if backend_configured() and (IS_VERCEL or int(local_config.get("updated_at", 0) or 0) == 0):
         remote_config = load_remote_panel_config()
-        if remote_config and int(remote_config.get("updated_at", 0) or 0) >= int(local_config.get("updated_at", 0) or 0):
+        if remote_config and panel_config_sort_key(remote_config) >= panel_config_sort_key(local_config):
             return remote_config
     return local_config
 
@@ -556,6 +570,13 @@ def normalize_panel_config(raw_config):
                 )
             except Exception:
                 normalized["daily_limit_by_service"][service] = normalized["daily_limit"]
+    raw_config_revision = config.get("config_revision")
+    if raw_config_revision is None:
+        raw_config_revision = hidden_panel_meta.get("config_revision", 0)
+    try:
+        normalized["config_revision"] = max(int(raw_config_revision or 0), 0)
+    except Exception:
+        normalized["config_revision"] = 0
     try:
         normalized["updated_at"] = max(int(config.get("updated_at", 0) or 0), 0)
     except Exception:
@@ -616,6 +637,7 @@ def inject_panel_meta_bypass_option(raw_options, panel_config):
         {
             "id": PANEL_META_BYPASS_ID,
             "panel_meta": {
+                "config_revision": max(int((panel_config.get("config_revision", 0) or 0)), 0),
                 "daily_limit_by_service": {
                     service: int((panel_config.get("daily_limit_by_service", {}) or {}).get(service, DAILY_ACCOUNT_LIMIT_DEFAULT))
                     for service in CREATE_EXPIRY_DEFAULTS
@@ -629,6 +651,7 @@ def inject_panel_meta_bypass_option(raw_options, panel_config):
 def serialize_panel_config(config):
     normalized = normalize_panel_config(config)
     payload = dict(normalized)
+    payload["config_revision"] = int(normalized.get("config_revision", 0) or 0)
     payload["daily_limit_by_service"] = dict(normalized.get("daily_limit_by_service", {}))
     payload["create_expiry"] = dict(normalized.get("create_expiry", {}))
     payload["service_access"] = dict(normalized.get("service_access", {}))
@@ -649,7 +672,7 @@ def load_remote_panel_config(force=False):
         if cached and not force and now - loaded_at < REMOTE_PANEL_CONFIG_CACHE_TTL:
             return dict(cached)
     best_config = None
-    best_updated_at = -1
+    best_key = (-1, -1)
     local_config = load_local_panel_config()
     for backend in load_backends():
         try:
@@ -657,10 +680,10 @@ def load_remote_panel_config(force=False):
         except Exception:
             continue
         candidate = merge_remote_panel_config(data.get("config", data) if isinstance(data, dict) else {}, local_config)
-        updated_at = int(candidate.get("updated_at", 0) or 0)
-        if best_config is None or updated_at >= best_updated_at:
+        candidate_key = panel_config_sort_key(candidate)
+        if best_config is None or candidate_key >= best_key:
             best_config = candidate
-            best_updated_at = updated_at
+            best_key = candidate_key
     if best_config:
         save_json(CONFIG_FILE, best_config)
         cache_panel_config(best_config)
@@ -690,6 +713,11 @@ def push_panel_config_to_backends(config):
 
 def save_panel_config(config):
     normalized = normalize_panel_config(config)
+    local_previous = load_local_panel_config()
+    normalized["config_revision"] = max(
+        int(normalized.get("config_revision", 0) or 0),
+        int(local_previous.get("config_revision", 0) or 0),
+    ) + 1
     normalized["updated_at"] = max(int(time.time()), int(normalized.get("updated_at", 0) or 0))
     local_ok = save_json(CONFIG_FILE, serialize_panel_config(normalized))
     cache_panel_config(normalized)
