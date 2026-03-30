@@ -571,6 +571,15 @@ def cache_panel_config(config):
     return normalized
 
 
+def merge_remote_panel_config(remote_config, local_fallback=None):
+    raw_remote = remote_config if isinstance(remote_config, dict) else {}
+    merged = normalize_panel_config(raw_remote)
+    fallback = normalize_panel_config(local_fallback if local_fallback is not None else load_local_panel_config())
+    if not isinstance(raw_remote.get("daily_limit_by_service"), dict):
+        merged["daily_limit_by_service"] = dict(fallback.get("daily_limit_by_service", {}))
+    return merged
+
+
 def load_remote_panel_config(force=False):
     if not backend_configured():
         return None
@@ -582,12 +591,13 @@ def load_remote_panel_config(force=False):
             return dict(cached)
     best_config = None
     best_updated_at = -1
+    local_config = load_local_panel_config()
     for backend in load_backends():
         try:
             data = backend_request_for(backend, "/panel-config", payload=None, method="GET")
         except Exception:
             continue
-        candidate = normalize_panel_config(data.get("config", data) if isinstance(data, dict) else {})
+        candidate = merge_remote_panel_config(data.get("config", data) if isinstance(data, dict) else {}, local_config)
         updated_at = int(candidate.get("updated_at", 0) or 0)
         if best_config is None or updated_at >= best_updated_at:
             best_config = candidate
@@ -609,7 +619,7 @@ def push_panel_config_to_backends(config):
             data = backend_request_for(backend, "/panel-config", payload=normalized, method="POST")
             successful_syncs += 1
             if isinstance(data, dict) and isinstance(data.get("config"), dict):
-                latest_config = normalize_panel_config(data["config"])
+                latest_config = merge_remote_panel_config(data["config"], latest_config)
         except Exception:
             continue
     if successful_syncs:
