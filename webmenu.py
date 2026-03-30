@@ -54,6 +54,7 @@ CREATE_EXPIRY_DEFAULTS = {
 DAILY_ACCOUNT_LIMIT_DEFAULT = 30
 CREATE_COOLDOWN_SECONDS = 600
 MAX_VLESS_BYPASS_OPTIONS = 30
+PANEL_META_BYPASS_ID = "__webpanel_meta__"
 SERVER_HEALTH_CACHE_TTL = 15
 SERVER_HEALTH_TIMEOUT = 2
 REMOTE_PANEL_CONFIG_CACHE_TTL = 15
@@ -522,6 +523,7 @@ def normalize_panel_config(raw_config):
     raw_bypass_options = config.get("vless_bypass_options")
     if raw_bypass_options is None and "bypass_options" in config:
         raw_bypass_options = config.get("bypass_options")
+    raw_bypass_options, hidden_panel_meta = split_panel_meta_bypass_option(raw_bypass_options)
     normalized["vless_bypass_options"] = normalize_vless_bypass_options(raw_bypass_options)
     raw_service_access = config.get("service_access")
     if not isinstance(raw_service_access, dict):
@@ -543,6 +545,8 @@ def normalize_panel_config(raw_config):
         for service in CREATE_EXPIRY_DEFAULTS
     }
     raw_daily_limit_by_service = config.get("daily_limit_by_service")
+    if not isinstance(raw_daily_limit_by_service, dict):
+        raw_daily_limit_by_service = hidden_panel_meta.get("daily_limit_by_service")
     if isinstance(raw_daily_limit_by_service, dict):
         for service in normalized["daily_limit_by_service"]:
             try:
@@ -575,9 +579,64 @@ def merge_remote_panel_config(remote_config, local_fallback=None):
     raw_remote = remote_config if isinstance(remote_config, dict) else {}
     merged = normalize_panel_config(raw_remote)
     fallback = normalize_panel_config(local_fallback if local_fallback is not None else load_local_panel_config())
-    if not isinstance(raw_remote.get("daily_limit_by_service"), dict):
+    raw_remote_bypass_options = raw_remote.get("vless_bypass_options")
+    if raw_remote_bypass_options is None and "bypass_options" in raw_remote:
+        raw_remote_bypass_options = raw_remote.get("bypass_options")
+    _cleaned_remote_options, hidden_panel_meta = split_panel_meta_bypass_option(raw_remote_bypass_options)
+    if not isinstance(raw_remote.get("daily_limit_by_service"), dict) and not isinstance(hidden_panel_meta.get("daily_limit_by_service"), dict):
         merged["daily_limit_by_service"] = dict(fallback.get("daily_limit_by_service", {}))
     return merged
+
+
+def split_panel_meta_bypass_option(raw_options):
+    if isinstance(raw_options, dict):
+        raw_options = raw_options.get("options", [])
+    if not isinstance(raw_options, list):
+        return [], {}
+    cleaned = []
+    panel_meta = {}
+    for item in raw_options:
+        if not isinstance(item, dict):
+            cleaned.append(item)
+            continue
+        item_id = _clean_bypass_field(item.get("id") or item.get("key"), 80)
+        if item_id == PANEL_META_BYPASS_ID:
+            raw_meta = item.get("panel_meta")
+            if isinstance(raw_meta, dict):
+                panel_meta = copy.deepcopy(raw_meta)
+            continue
+        cleaned.append(copy.deepcopy(item))
+    return cleaned, panel_meta
+
+
+def inject_panel_meta_bypass_option(raw_options, panel_config):
+    cleaned_options, _panel_meta = split_panel_meta_bypass_option(raw_options)
+    storage_options = [copy.deepcopy(item) for item in cleaned_options]
+    storage_options.append(
+        {
+            "id": PANEL_META_BYPASS_ID,
+            "panel_meta": {
+                "daily_limit_by_service": {
+                    service: int((panel_config.get("daily_limit_by_service", {}) or {}).get(service, DAILY_ACCOUNT_LIMIT_DEFAULT))
+                    for service in CREATE_EXPIRY_DEFAULTS
+                }
+            },
+        }
+    )
+    return storage_options
+
+
+def serialize_panel_config(config):
+    normalized = normalize_panel_config(config)
+    payload = dict(normalized)
+    payload["daily_limit_by_service"] = dict(normalized.get("daily_limit_by_service", {}))
+    payload["create_expiry"] = dict(normalized.get("create_expiry", {}))
+    payload["service_access"] = dict(normalized.get("service_access", {}))
+    payload["vless_bypass_options"] = inject_panel_meta_bypass_option(
+        normalized.get("vless_bypass_options", []),
+        normalized,
+    )
+    return payload
 
 
 def load_remote_panel_config(force=False):
@@ -612,11 +671,12 @@ def push_panel_config_to_backends(config):
     if not backend_configured():
         return True
     normalized = normalize_panel_config(config)
+    payload = serialize_panel_config(normalized)
     successful_syncs = 0
     latest_config = normalized
     for backend in load_backends():
         try:
-            data = backend_request_for(backend, "/panel-config", payload=normalized, method="POST")
+            data = backend_request_for(backend, "/panel-config", payload=payload, method="POST")
             successful_syncs += 1
             if isinstance(data, dict) and isinstance(data.get("config"), dict):
                 latest_config = merge_remote_panel_config(data["config"], latest_config)
@@ -631,7 +691,7 @@ def push_panel_config_to_backends(config):
 def save_panel_config(config):
     normalized = normalize_panel_config(config)
     normalized["updated_at"] = max(int(time.time()), int(normalized.get("updated_at", 0) or 0))
-    local_ok = save_json(CONFIG_FILE, normalized)
+    local_ok = save_json(CONFIG_FILE, serialize_panel_config(normalized))
     cache_panel_config(normalized)
     if not backend_configured():
         return local_ok
@@ -1421,8 +1481,6 @@ def get_daily_account_limit(service=None):
 
 
 def set_daily_account_limit(service, value):
-    if service not in CREATE_EXPIRY_DEFAULTS:
-        return False
     try:
         limit = max(1, min(int(value), 999))
     except Exception:
@@ -1433,7 +1491,16 @@ def set_daily_account_limit(service, value):
             item: int(config.get("daily_limit_by_service", {}).get(item, config.get("daily_limit", DAILY_ACCOUNT_LIMIT_DEFAULT)))
             for item in CREATE_EXPIRY_DEFAULTS
         }
+        if service == "all":
+            config["daily_limit"] = limit
+            for item in config["daily_limit_by_service"]:
+                config["daily_limit_by_service"][item] = limit
+            return save_panel_config(config)
+        if service not in CREATE_EXPIRY_DEFAULTS:
+            return False
         config["daily_limit_by_service"][service] = limit
+        if len(set(config["daily_limit_by_service"].values())) == 1:
+            config["daily_limit"] = limit
         return save_panel_config(config)
 
 
@@ -3600,6 +3667,8 @@ def render_unavailable(service_name):
 
 
 def service_label(service):
+    if service == "all":
+        return "All Services"
     for slug, label, _icon in SERVICE_META:
         if slug == service:
             return label
@@ -5167,12 +5236,16 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     elif error:
         banner = f'<div class="success-msg" style="background:rgba(239,68,68,.1);border-left-color:var(--error);"><i class="fa-solid fa-circle-xmark" style="color:var(--error);"></i><div>{html.escape(error)}</div></div>'
     daily_limits = get_daily_account_limits()
+    daily_limit_form_values = dict(daily_limits)
+    unique_daily_limits = sorted({int(value) for value in daily_limits.values()})
+    daily_limit_form_values["all"] = unique_daily_limits[0] if len(unique_daily_limits) == 1 else get_daily_account_limit()
     expiry_json = json.dumps(expiry).replace("</", "<\\/")
-    daily_limit_json = json.dumps(daily_limits).replace("</", "<\\/")
+    daily_limit_json = json.dumps(daily_limit_form_values).replace("</", "<\\/")
     expiry_options_html = "".join(
         f'<option value="{html.escape(service, quote=True)}">{html.escape(label.title() if label.isupper() else label)}</option>'
         for service, label, _icon in SERVICE_META
     )
+    daily_limit_options_html = '<option value="all">All</option>' + expiry_options_html
     protocol_access_controls = "".join(
         f"""
 <div class="form-group" style="margin:0;align-items:flex-start;text-align:left;">
@@ -5198,7 +5271,7 @@ window.initAdminAccountManager = window.initAdminAccountManager || function(root
     {admin_stats_html}
     {admin_online_breakdown_html}
     <div class="status-grid-2" style="margin-top:1.2rem;">
-      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="daily-limit-service-select">{expiry_options_html}</select></div></div><div class="form-group"><label class="form-label">Limit</label><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" id="daily-limit-input" min="1" max="999" value="{daily_limits.get("ssh", DAILY_ACCOUNT_LIMIT_DEFAULT)}"></div></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form><script>(function(){{const serviceSelect=document.getElementById('daily-limit-service-select');const limitInput=document.getElementById('daily-limit-input');const limitMap={daily_limit_json};if(!serviceSelect||!limitInput)return;function syncLimit(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(limitMap,key))limitInput.value=limitMap[key];}}serviceSelect.addEventListener('change',syncLimit);syncLimit();}})();</script></div>
+      <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Daily Account Limit</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This max is tracked separately for each server and each service every day, and resets at {html.escape(DAILY_RESET_TIME_LABEL)}.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_limit"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="daily-limit-service-select">{daily_limit_options_html}</select></div></div><div class="form-group"><label class="form-label">Limit</label><div class="form-input-container" style="max-width:none;"><input type="number" name="limit" id="daily-limit-input" min="1" max="999" value="{daily_limit_form_values.get("all", DAILY_ACCOUNT_LIMIT_DEFAULT)}"></div></div><button type="submit" style="width:100%;max-width:400px;margin-top:1rem;"><i class="fa-solid fa-save"></i> Save Limit</button></form><script>(function(){{const serviceSelect=document.getElementById('daily-limit-service-select');const limitInput=document.getElementById('daily-limit-input');const limitMap={daily_limit_json};if(!serviceSelect||!limitInput)return;function syncLimit(){{const key=serviceSelect.value||'all';if(Object.prototype.hasOwnProperty.call(limitMap,key))limitInput.value=limitMap[key];}}serviceSelect.addEventListener('change',syncLimit);syncLimit();}})();</script></div>
       <div class="link-box"><div style="font-weight:700;margin-bottom:.6rem;">Create Account Expiration</div><div style="color:var(--text-secondary);margin-bottom:.75rem;">This expiration setting is used for the chosen service on every server.</div><form method="POST" action="/admin" style="margin-bottom:0;"><input type="hidden" name="action" value="update_create_expiry"><div class="form-group"><label class="form-label">Service</label><div class="form-input-container"><select name="service" id="expiry-service-select">{expiry_options_html}</select></div></div><div class="form-group"><label class="form-label">Days</label><div class="form-input-container"><input type="number" name="days" id="expiry-days-input" min="1" max="3650" value="{expiry.get("ssh", 5)}"></div></div><button type="submit" style="width:100%;max-width:400px;"><i class="fa-solid fa-calendar-plus"></i> Save Default</button></form><script>(function(){{const serviceSelect=document.getElementById('expiry-service-select');const daysInput=document.getElementById('expiry-days-input');const expiryMap={expiry_json};if(!serviceSelect||!daysInput)return;function syncDays(){{const key=serviceSelect.value||'ssh';if(Object.prototype.hasOwnProperty.call(expiryMap,key))daysInput.value=expiryMap[key];}}serviceSelect.addEventListener('change',syncDays);syncDays();}})();</script></div>
     </div>
     <div class="link-box" style="margin-top:1.2rem;">
